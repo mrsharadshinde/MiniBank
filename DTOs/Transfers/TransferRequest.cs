@@ -1,3 +1,9 @@
 namespace MiniBankWallet.DTOs.Transfers;
 
-public record TransferRequest(int FromAccountId, int ToAccountId, decimal Amount);
+public record TransferRequest(
+    string FromAccountNumber,
+    string ToAccountNumber,
+    decimal Amount
+);
+
+// THe receipt we send back

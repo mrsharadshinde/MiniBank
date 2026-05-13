@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using MiniBankWallet.Data;
 using MiniBankWallet.Models;
 using MiniBankWallet.DTOs.Transfers;
+using FluentValidation;
 
 namespace MiniBankWallet.Endpoints;
 
@@ -23,32 +24,31 @@ public static class TransferEndpoints
         // ==========================================
         group.MapPost("/", async (
             [FromHeader(Name = "X-Idempotency-Key")] string? idempotencyKey, // Grabs the retry key from the HTTP Header
+            IValidator<TransferRequest> validator,
             TransferRequest request,                                         // Grabs the JSON body
             AppDbContext db,                                                 // Injects the Database connection
             ClaimsPrincipal user) =>                                         // Injects the decoded JWT Token data
         {
-            // ----------------------------------------------------
-            // LAYER 1: SECURITY (AUTHORIZATION)
-            // ----------------------------------------------------
-            // Extract the user ID from the JWT token and verify they own the 'FromAccount'
+            
+            var validatorResult = await validator.ValidateAsync(request);
+            if(!validatorResult.IsValid) return Results.ValidationProblem(validatorResult.ToDictionary());
+
+            var sender = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == request.FromAccountNumber);
+            var receiver = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == request.ToAccountNumber);
+
+            if (sender is null || receiver is null)
+                return Results.NotFound("One or both accounts not exist.");
+
+            if (sender.Status != "Active" || receiver.Status != "Active") 
+                return Results.BadRequest("Both the accounts must be 'Active' to perform transfer ");
             var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            if (loggedInUserId != request.FromAccountId.ToString())
+            if (loggedInUserId != sender.Id.ToString())
             {
                 // The Bouncer kicks them out: You cannot spend someone else's money!
                 return Results.Forbid();
             }
 
-            // ----------------------------------------------------
-            // LAYER 2: BASIC VALIDATION
-            // ----------------------------------------------------
-            if (request.Amount <= 0)
-                return Results.BadRequest("Transfer amount must be greater than zero.");
-
-            // ----------------------------------------------------
-            // LAYER 3: IDEMPOTENCY (FLAKY NETWORK PROTECTION)
-            // ----------------------------------------------------
-            // If the mobile app sent a tracking key, check if we already moved this money
             if (!string.IsNullOrWhiteSpace(idempotencyKey))
             {
                 var existingTransfer = await db.TransactionRecords
@@ -64,43 +64,52 @@ public static class TransferEndpoints
                 }
             }
 
-            // ----------------------------------------------------
-            // LAYER 4: ACID TRANSACTION (ALL-OR-NOTHING)
-            // ----------------------------------------------------
             using var transaction = await db.Database.BeginTransactionAsync();
 
             try
             {
-                // 1. Fetch Accounts
-                var sender = await db.Accounts.FindAsync(request.FromAccountId);
-                var receiver = await db.Accounts.FindAsync(request.ToAccountId);
-
-                if (sender is null || receiver is null)
-                    return Results.NotFound("One or both accounts do not exist.");
-
-                // 2. Check Balance
                 if (sender.Balance < request.Amount)
                     return Results.BadRequest("Insufficient funds for this transfer.");
 
-                // 3. Move the Money
                 sender.Balance -= request.Amount;
                 receiver.Balance += request.Amount;
-
-                // 4. Update Concurrency Tokens (Double-Spend Protection)
                 sender.Version = Guid.NewGuid();
                 receiver.Version = Guid.NewGuid();
 
-                // 5. Create the Audit Receipt
+                // Master Transaction  Audit Receipt 
                 var record = new TransactionRecord
                 {
                     FromAccountId = sender.Id,
                     ToAccountId = receiver.Id,
                     Amount = request.Amount,
-                    IdempotencyKey = idempotencyKey // Save the key to block future retries
+                    IdempotencyKey = idempotencyKey
                 };
                 db.TransactionRecords.Add(record);
 
-                // 6. Save and Commit
+                // CREATE the double-Entry Ledger Lines 
+                // Line 1: The Debit (Negative Amount )
+                var debitEntry = new LedgerEntry
+                {
+                    Transaction = record,
+                    AccoutId = sender.Id,
+                    Amount = -request.Amount,
+                    Description = $"Transfer to Account ending in {receiver.AccountNumber[^4..]}"
+                };
+                
+                // Line 2: the Creddit (Posive Amount)
+                var creaditEntry = new LedgerEntry
+                {
+                    Transaction = record,
+                    AccoutId = receiver.Id,
+                    Amount = request.Amount,
+                    Description = $"Transfer from Account ending in {sender.AccountNumber[^4..]}"
+                };
+                db.LedgerEntries.AddRange(debitEntry, creaditEntry);
+
+                Console.WriteLine($"[for sender] Your account ending with ******{sender.AccountNumber[^4..]} is debited with {request.Amount} \nwith transaction Id: {record.Id}");
+                Console.WriteLine($"[for receiver] Your account ending with *****{receiver.AccountNumber[^4..]} is credited with {request.Amount} \nwith transaction Id: {record.Id}");
+
+                //  Save and Commit
                 await db.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -119,10 +128,6 @@ public static class TransferEndpoints
                 Console.WriteLine($"FATAL TRANSFER ERROR: {ex.Message}");
                 return Results.Problem("A critical error occurred. No money was moved.");
             }
-
-            // ----------------------------------------------------
-            // LAYER 5: THE GATEKEEPER
-            // ----------------------------------------------------
         }).RequireAuthorization(); // Ensures NO ONE enters this block without a valid JWT Token
     }
 }

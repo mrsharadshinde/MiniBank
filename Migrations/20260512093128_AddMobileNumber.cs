@@ -1,29 +1,28 @@
-﻿using System;
-using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace MiniBankWallet.Migrations
 {
     /// <inheritdoc />
-    public partial class AddConcurrencyToken : Migration
+    public partial class AddMobileNumber : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<Guid>(
-                name: "Version",
+            migrationBuilder.AddColumn<string>(
+                name: "MobileNumber",
                 table: "Accounts",
-                type: "TEXT",
+                type: "nvarchar(max)",
                 nullable: false,
-                defaultValue: new Guid("00000000-0000-0000-0000-000000000000"));
+                defaultValue: "");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropColumn(
-                name: "Version",
+                name: "MobileNumber",
                 table: "Accounts");
         }
     }

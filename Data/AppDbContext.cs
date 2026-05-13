@@ -9,7 +9,7 @@ public class AppDbContext : DbContext
 
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<TransactionRecord> TransactionRecords => Set<TransactionRecord>();
-
+   public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // FINTECH RULE #2: Lock down database precision to prevent floating-point errors
@@ -20,5 +20,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<TransactionRecord>()
             .Property(t => t.Amount)
             .HasColumnType("decimal(18,2)");
+
+        modelBuilder.Entity<Account>()
+            .Property(a => a.AccountType)
+            .HasConversion<string>();
     }
 }

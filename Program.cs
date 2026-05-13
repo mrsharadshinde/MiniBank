@@ -1,5 +1,6 @@
 // Namespacees 
 using System.Text;
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -18,7 +19,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 // --> A. Database Setup
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite("Data Source=minibank.db"));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddMemoryCache();
+
+// for data Validators 
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 // --> B. Security & Identity Setup (JWT)
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -61,7 +67,7 @@ app.UseAuthorization();  // 2. VIP Manager asks: "Are you allowed in here?"
 // ==========================================
 
 // A quick test endpoint to make sure the app runs
-app.MapGet("/", () => "Mini-Bank Wallet API is running!");
+app.MapGet("/", () => "Mini-Bank  API is running!");
 
 // Map our custom feature endpoints
 app.MapAccountEndpoints();

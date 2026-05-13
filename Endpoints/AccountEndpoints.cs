@@ -3,11 +3,13 @@ using MiniBankWallet.Models;
 using MiniBankWallet.DTOs.Accounts;
 using MiniBankWallet.Mappers;
 using Microsoft.EntityFrameworkCore;
+using MiniBankWallet.Services;
 
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
-using System.Formats.Tar;
-using Microsoft.AspNetCore.Mvc.RazorPages;
+
+using FluentValidation;
+using System.ComponentModel.DataAnnotations;
 
 namespace MiniBankWallet.Endpoints;
 
@@ -18,60 +20,112 @@ public static class AccountEndpoints
         // creat the root group 
         var group = app.MapGroup("/api/accounts");
 
-        // create the accound
-        group.MapPost("/", async (CreateAccountRequest request, AppDbContext db) =>
+        // getting account types for frontend dropdown 
+        group.MapGet("/types", () =>
         {
-            var account = new Account
-            {
-                OwnerName = request.OwnerName,
-                Balance = request.InitialDeposit
-            };
+            var types = Enum.GetNames(typeof(AccountType));
+            return Results.Ok(types);
+        });
+        // =============================================
+        // create the accound ( Open new Bank account)
+        group.MapPost("/", async (
+            CreateAccountRequest request,
+            IValidator<CreateAccountRequest> Validator,
+            AppDbContext db) =>
+        {
+            // basic validaiton 
+            var validatorResult = await Validator.ValidateAsync(request);
 
-            db.Accounts.Add(account);
+            if (!validatorResult.IsValid)
+            {
+                return Results.ValidationProblem(validatorResult.ToDictionary());
+            }
+            // Ensure Mobile number isn't already registred 
+            bool phoneExists = await db.Accounts.AnyAsync(a => a.MobileNumber == request.MobileNumber);
+            if (phoneExists) return Results.Conflict("An Account with this Mobile number already exists.");
+
+            var newAccount = new Account
+            {
+                AccountNumber = AccountGenratorService.Generate12DigitAccountNumber(),
+                OwnerName = request.OwnerName,
+                MobileNumber = request.MobileNumber,
+                Email = request.Email,
+                AccountType = Enum.Parse<AccountType>(request.AccountType, ignoreCase: true),
+                Status = "Active", // Requires Admin/ KYC approval later 
+                Balance = 1000,
+                Version = Guid.NewGuid()
+            } ;
+
+            db.Accounts.Add(newAccount);
             await db.SaveChangesAsync();
 
-            return Results.Ok(account.ToAccountResponse());
+            return Results.Created($"/api/accounts/{newAccount.AccountNumber}", newAccount.ToAccountResponse());
         });
 
-        // Get account list 
-        group.MapGet("/", async (AppDbContext db) =>
+        
+        //================================================================
+        // 2. Update Account Details 
+        group.MapPut("/{accountNumber}", async (
+            string accountNumber,
+            UpdateAccountRequest request, 
+            AppDbContext db,
+            ClaimsPrincipal user) =>
         {
-            var accounts = await db.Accounts
-                .AsNoTracking()
-                .ToListAsync();
-            var response = accounts.Select(a => a.ToAccountResponse());
-            return Results.Ok(response);
-        });
+            var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
 
+            if (account is null ) return Results.NotFound();
+
+            // Security : ensure the authorization 
+            var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if(loggedInUserId != account.Id.ToString()) return Results.Forbid();
+
+            // Update allwoed firlds 
+            account.Email = request.Email;
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new {message = "Account updated Successfully. ", });
+        }).RequireAuthorization();
+        // ==================================================================
+        
         // get specific account 
-        group.MapGet("/{id}", async (int id, AppDbContext db) =>
+        group.MapGet("/{accountNumber}", async (
+            string accountNumber,
+            AppDbContext db,
+            ClaimsPrincipal user )=>
         {
-            Account? account  = await db.Accounts
-                .FindAsync(id);
+                var account  = await db.Accounts
+                    .FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
+                if (account is null ) return Results.NotFound("Invalid accountNumber");
 
-            return account is null ? 
-                Results.NotFound() : 
-                Results.Ok(account.ToAccountResponse());
-        });
+                // logges in user 
+                var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (loggedInUserId != account.Id.ToString()) return Results.Forbid(); 
+                
+                return Results.Ok(account.ToAccountResponse());
+        }).RequireAuthorization();
 
         // Check balance 
-        group.MapGet("/{id}/balance", async (int id, AppDbContext db) =>
+        group.MapGet("/{accountNumber}/balance", async (
+            string accountNumber,
+            AppDbContext db,
+            ClaimsPrincipal user ) =>
         {
-            decimal? balance = await db.Accounts
-                .Where(a => a.Id == id)
-                .Select(a => (decimal?)a.Balance)
-                .FirstOrDefaultAsync();
+            var account = await db.Accounts
+                .FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
+            
+            if (account is null ) return Results.NotFound("Invalid accountNumber");
 
-            return balance is null ?
-                Results.NotFound("Account not found") :
-                Results.Ok(new { AccountId = id, Balance = balance });
+            var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
+            
+            return Results.Ok(new { AccountNummber = account.AccountNumber, Balance = account.Balance});
         });
 
         // ===================================================
         // Pagination Trasaction history 
-        // GET/api/accounts/{id} Trasactions?page=1&pageSize=10
-        group.MapGet("/{id}/trasactions", async (
-            int id,
+        // GET/api/accounts/{accountNumber} Trasactions?page=1&pageSize=10
+        group.MapGet("/{accountNumber}/trasactions", async (
+            string accountNumber,
             [FromQuery] int page,
             [FromQuery] int pageSize, 
             AppDbContext db,
@@ -82,17 +136,19 @@ public static class AccountEndpoints
                 pageSize = pageSize < 1 ? 10: pageSize;
                 pageSize = pageSize > 50 ? 50: pageSize;
 
+                var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
+                if (account is null) return Results.NotFound("Account Not Found ");
+
                 // Security Authentication 
                 var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (loggedInUserId != id.ToString())
-                {
-                    return Results.Forbid();
-                }
+                if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
+                
 
                 // Build the base query ( Dererred Excution )
                 // find all Trasaction where this user send or recived money 
+                int internalId = account.Id;
                 var baseQuery = db.TransactionRecords
-                .Where(t => t.FromAccountId == id || t.ToAccountId == id)
+                .Where(t => t.FromAccountId == internalId || t.ToAccountId == internalId)
                 .OrderByDescending(t => t.Timestamp); // newest receipts first 
 
                 // 3. get the metadata how many total page exists 
@@ -106,8 +162,8 @@ public static class AccountEndpoints
                 .Select(t => new
                 {
                     TransactionId = t.Id,
-                    Type = t.FromAccountId == id ? "DEBIT (send)" : "CREDIT (Received)",
-                    CounterPartyAccount = t.FromAccountId == id ? t.ToAccountId : t.FromAccountId,
+                    Type = t.FromAccountId == internalId ? "DEBIT (send)" : "CREDIT (Received)",
+                    CounterPartyAccount = t.FromAccountId == internalId ? t.ToAccountId : t.FromAccountId,
                     t.Amount,
                     t.Timestamp
                 }).ToListAsync();
