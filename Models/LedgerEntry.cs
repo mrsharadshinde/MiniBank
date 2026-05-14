@@ -11,7 +11,7 @@ public class LedgerEntry
     public TransactionRecord Transaction {get; set;} = null!;
 
     // The account this specific line affests 
-    public int AccoutId {get; set;}
+    public int AccountId  {get; set;}
     public Account Account {get; set;} = null!;
 
     public decimal Amount {get; set;}

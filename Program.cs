@@ -26,6 +26,9 @@ builder.Services.AddMemoryCache();
 // for data Validators 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
+// Add Backgroud Workers
+builder.Services.AddHostedService<MiniBankWallet.Workers.DailyInterestWorker>();
+
 // --> B. Security & Identity Setup (JWT)
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

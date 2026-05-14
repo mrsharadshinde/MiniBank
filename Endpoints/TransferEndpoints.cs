@@ -10,6 +10,7 @@ using MiniBankWallet.Data;
 using MiniBankWallet.Models;
 using MiniBankWallet.DTOs.Transfers;
 using FluentValidation;
+using MiniBankWallet.Helpers;
 
 namespace MiniBankWallet.Endpoints;
 
@@ -87,24 +88,16 @@ public static class TransferEndpoints
                 db.TransactionRecords.Add(record);
 
                 // CREATE the double-Entry Ledger Lines 
-                // Line 1: The Debit (Negative Amount )
-                var debitEntry = new LedgerEntry
-                {
-                    Transaction = record,
-                    AccoutId = sender.Id,
-                    Amount = -request.Amount,
-                    Description = $"Transfer to Account ending in {receiver.AccountNumber[^4..]}"
-                };
-                
-                // Line 2: the Creddit (Posive Amount)
-                var creaditEntry = new LedgerEntry
-                {
-                    Transaction = record,
-                    AccoutId = receiver.Id,
-                    Amount = request.Amount,
-                    Description = $"Transfer from Account ending in {sender.AccountNumber[^4..]}"
-                };
-                db.LedgerEntries.AddRange(debitEntry, creaditEntry);
+
+                var ledgerLines = LedgerHelper.CreateDoubleEntry(
+                    record: record,
+                    senderAccountId: sender.Id,
+                    receiverAccountId: receiver.Id,
+                    amount: request.Amount,
+                    debitDescription: $"Transfer to Account ending in {receiver.AccountNumber[^4..]}",
+                    creditDescription: $"Transfer from Account ending in {sender.AccountNumber[^4..]}"
+                );
+                db.LedgerEntries.AddRange(ledgerLines);
 
                 Console.WriteLine($"[for sender] Your account ending with ******{sender.AccountNumber[^4..]} is debited with {request.Amount} \nwith transaction Id: {record.Id}");
                 Console.WriteLine($"[for receiver] Your account ending with *****{receiver.AccountNumber[^4..]} is credited with {request.Amount} \nwith transaction Id: {record.Id}");

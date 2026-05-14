@@ -3,7 +3,7 @@ namespace MiniBankWallet.Models;
 public enum AccountType
 {
     Checking,
-    Savings,
+    Saving,
     Business,
     Student
 }

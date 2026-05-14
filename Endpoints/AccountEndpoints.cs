@@ -54,7 +54,7 @@ public static class AccountEndpoints
                 Status = "Active", // Requires Admin/ KYC approval later 
                 Balance = 1000,
                 Version = Guid.NewGuid()
-            } ;
+            };
 
             db.Accounts.Add(newAccount);
             await db.SaveChangesAsync();
@@ -62,63 +62,64 @@ public static class AccountEndpoints
             return Results.Created($"/api/accounts/{newAccount.AccountNumber}", newAccount.ToAccountResponse());
         });
 
-        
+
         //================================================================
         // 2. Update Account Details 
         group.MapPut("/{accountNumber}", async (
             string accountNumber,
-            UpdateAccountRequest request, 
+            UpdateAccountRequest request,
             AppDbContext db,
             ClaimsPrincipal user) =>
         {
             var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
 
-            if (account is null ) return Results.NotFound();
+            if (account is null) return Results.NotFound();
 
             // Security : ensure the authorization 
             var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if(loggedInUserId != account.Id.ToString()) return Results.Forbid();
+            if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
 
             // Update allwoed firlds 
             account.Email = request.Email;
             await db.SaveChangesAsync();
 
-            return Results.Ok(new {message = "Account updated Successfully. ", });
+            return Results.Ok(new { message = "Account updated Successfully. ", });
         }).RequireAuthorization();
+
         // ==================================================================
-        
+
         // get specific account 
         group.MapGet("/{accountNumber}", async (
             string accountNumber,
             AppDbContext db,
-            ClaimsPrincipal user )=>
+            ClaimsPrincipal user) =>
         {
-                var account  = await db.Accounts
-                    .FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
-                if (account is null ) return Results.NotFound("Invalid accountNumber");
+            var account = await db.Accounts
+                .FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
+            if (account is null) return Results.NotFound("Invalid accountNumber");
 
-                // logges in user 
-                var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                if (loggedInUserId != account.Id.ToString()) return Results.Forbid(); 
-                
-                return Results.Ok(account.ToAccountResponse());
+            // logges in user 
+            var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
+
+            return Results.Ok(account.ToAccountResponse());
         }).RequireAuthorization();
 
         // Check balance 
         group.MapGet("/{accountNumber}/balance", async (
             string accountNumber,
             AppDbContext db,
-            ClaimsPrincipal user ) =>
+            ClaimsPrincipal user) =>
         {
             var account = await db.Accounts
                 .FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
-            
-            if (account is null ) return Results.NotFound("Invalid accountNumber");
+
+            if (account is null) return Results.NotFound("Invalid accountNumber");
 
             var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
-            
-            return Results.Ok(new { AccountNummber = account.AccountNumber, Balance = account.Balance});
+
+            return Results.Ok(new { AccountNummber = account.AccountNumber, Balance = account.Balance });
         });
 
         // ===================================================
@@ -126,60 +127,54 @@ public static class AccountEndpoints
         // GET/api/accounts/{accountNumber} Trasactions?page=1&pageSize=10
         group.MapGet("/{accountNumber}/trasactions", async (
             string accountNumber,
-            [FromQuery] int page,
-            [FromQuery] int pageSize, 
+            [FromQuery] int? page,
+            [FromQuery] int? pageSize,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate,
             AppDbContext db,
             ClaimsPrincipal user) =>
             {
-                // set default if user forget to send them 
-                page = page < 1 ? 1: page;
-                pageSize = pageSize < 1 ? 10: pageSize;
-                pageSize = pageSize > 50 ? 50: pageSize;
+                //1.  set default if user forget to send them 
+                int currentPage = (page ?? 1) < 1 ? 1 : page.Value;
+                int currentSize = (pageSize ?? 10) < 1 ? 10 : pageSize.Value;
+                currentSize = currentSize > 50 ? 50 : currentSize;
 
                 var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
                 if (account is null) return Results.NotFound("Account Not Found ");
 
-                // Security Authentication 
+                //2.  Security Authentication 
                 var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                 if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
-                
 
-                // Build the base query ( Dererred Excution )
-                // find all Trasaction where this user send or recived money 
-                int internalId = account.Id;
-                var baseQuery = db.TransactionRecords
-                .Where(t => t.FromAccountId == internalId || t.ToAccountId == internalId)
-                .OrderByDescending(t => t.Timestamp); // newest receipts first 
 
-                // 3. get the metadata how many total page exists 
-                var totalRecord = await baseQuery.CountAsync();
-                var totalPages = (int)Math.Ceiling(totalRecord /(double)pageSize );
+                //3.  Build the base query ( Dererred Excution )
+                var baseQuery = db.LedgerEntries.Where(l => l.AccountId == account.Id).AsQueryable();
 
-                // 4. Fetch the specifc page (skip and take )
+                if (startDate.HasValue)
+                    baseQuery = baseQuery.Where(l => l.CreatedAt >= startDate.Value);
+
+                if (endDate.HasValue)
+                    baseQuery = baseQuery.Where(l => l.CreatedAt <= endDate.Value);
+
+                baseQuery = baseQuery.OrderByDescending(l => l.CreatedAt);
+
+                // 4. get the metadata how many total page exists 
+                var totalRecords = await baseQuery.CountAsync();
+                var totalPages = (int)Math.Ceiling(totalRecords / (double)currentSize);
+
+                // 5. Fetch and Map to our strict DTO 
                 var transactions = await baseQuery
-                .Skip((page -1 ) * pageSize)
-                .Take(pageSize)
-                .Select(t => new
-                {
-                    TransactionId = t.Id,
-                    Type = t.FromAccountId == internalId ? "DEBIT (send)" : "CREDIT (Received)",
-                    CounterPartyAccount = t.FromAccountId == internalId ? t.ToAccountId : t.FromAccountId,
-                    t.Amount,
-                    t.Timestamp
-                }).ToListAsync();
+                .Skip((currentPage - 1) * currentSize)
+                .Take(currentSize)
+                .MapToStatementDTO()
+                .ToListAsync();
 
-                // 5. Return the Evvelope 
-                return Results.Ok (new 
-                {
-                    Metadata = new
-                    {
-                        CurrentPage = page,
-                        PageSize = pageSize,
-                        TotalRecord = totalRecord, 
-                        TotalPages = totalPages
-                    },
-                    Data = transactions
-                });
+                var response = new StatementResponse(
+                    transactions,
+                    new PaginationMetadata(currentPage, currentSize, totalRecords, totalPages)
+                );
+
+                return Results.Ok(response);
             }).RequireAuthorization();
     }
 }

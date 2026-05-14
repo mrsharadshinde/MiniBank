@@ -21,7 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Helpers\" />
     <Folder Include="Validators\" />
+    <Folder Include="Workers\" />
   </ItemGroup>
 
 </Project>
