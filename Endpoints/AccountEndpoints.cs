@@ -9,7 +9,8 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 
 using FluentValidation;
-using System.ComponentModel.DataAnnotations;
+using MiniBankWallet.Models.Banking;
+using MiniBankWallet.Models.Identity;
 
 namespace MiniBankWallet.Endpoints;
 
@@ -20,12 +21,6 @@ public static class AccountEndpoints
         // creat the root group 
         var group = app.MapGroup("/api/accounts");
 
-        // getting account types for frontend dropdown 
-        group.MapGet("/types", () =>
-        {
-            var types = Enum.GetNames(typeof(AccountType));
-            return Results.Ok(types);
-        });
         // =============================================
         // create the accound ( Open new Bank account)
         group.MapPost("/", async (
@@ -33,76 +28,93 @@ public static class AccountEndpoints
             IValidator<CreateAccountRequest> Validator,
             AppDbContext db) =>
         {
-            // basic validaiton 
+            //1. basic validaiton 
             var validatorResult = await Validator.ValidateAsync(request);
 
             if (!validatorResult.IsValid)
             {
                 return Results.ValidationProblem(validatorResult.ToDictionary());
             }
-            // Ensure Mobile number isn't already registred 
-            bool phoneExists = await db.Accounts.AnyAsync(a => a.MobileNumber == request.MobileNumber);
-            if (phoneExists) return Results.Conflict("An Account with this Mobile number already exists.");
+            //2. check if user exists
+            bool userExists = await db.Users.AnyAsync(u => u.AadharNumber == request.AadharNumber);
+            if (userExists) return Results.Conflict("An Account with this AadharNumber already exists.");
 
-            var newAccount = new Account
+            // 3. Create new user PROFILE
+            var newUser = new User
+            {
+                OwnerName = request.OwnerName,
+                AadharNumber = request.AadharNumber,
+                MobileNumber = request.MobileNumber,
+                Email = request.Email!,
+                Role = UserRole.Customer
+            };
+
+            // 4. Create the Financial Profile
+            var newAccount = new BankAccount
             {
                 AccountNumber = AccountGenratorService.Generate12DigitAccountNumber(),
-                OwnerName = request.OwnerName,
-                MobileNumber = request.MobileNumber,
-                Email = request.Email,
                 AccountType = Enum.Parse<AccountType>(request.AccountType, ignoreCase: true),
                 Status = "Active", // Requires Admin/ KYC approval later 
                 Balance = 1000,
-                Version = Guid.NewGuid()
+                User = newUser
             };
 
-            db.Accounts.Add(newAccount);
+            // 5. Save both to the database
+            db.Users.Add(newUser);
+            db.BankAccounts.Add(newAccount);
             await db.SaveChangesAsync();
 
-            return Results.Created($"/api/accounts/{newAccount.AccountNumber}", newAccount.ToAccountResponse());
+            var responseData = new AccountResponse(
+                newAccount.AccountNumber,
+                newUser.OwnerName,
+                newUser.Email,
+                newAccount.AccountType.ToString(),
+                newAccount.Balance,
+                newAccount.Status
+            );
+            return Results.Created($"/api/accounts/{newAccount.AccountNumber}", responseData);
         });
 
 
-        //================================================================
-        // 2. Update Account Details 
-        group.MapPut("/{accountNumber}", async (
-            string accountNumber,
-            UpdateAccountRequest request,
-            AppDbContext db,
-            ClaimsPrincipal user) =>
-        {
-            var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
-
-            if (account is null) return Results.NotFound();
-
-            // Security : ensure the authorization 
-            var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
-
-            // Update allwoed firlds 
-            account.Email = request.Email;
-            await db.SaveChangesAsync();
-
-            return Results.Ok(new { message = "Account updated Successfully. ", });
-        }).RequireAuthorization();
-
-        // ==================================================================
+        //===============================================================
 
         // get specific account 
-        group.MapGet("/{accountNumber}", async (
-            string accountNumber,
+        group.MapGet("/{identifier}", async (
+            string identifier,
             AppDbContext db,
-            ClaimsPrincipal user) =>
+            ClaimsPrincipal logedInuser) =>
         {
-            var account = await db.Accounts
-                .FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
-            if (account is null) return Results.NotFound("Invalid accountNumber");
+            // find the the user with Mobile number or email 
+            var user = await db.Users
+                .FirstOrDefaultAsync(u => u.MobileNumber == identifier || u.Email == identifier);
 
-            // logges in user 
-            var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (loggedInUserId != account.Id.ToString()) return Results.Forbid();
+            //  if not found with email or MobileNumber find the account with accountNumber
+            if (user == null)
+            {
+                var account = await db.BankAccounts
+                    .FirstOrDefaultAsync(a => a.AccountNumber == identifier);
 
-            return Results.Ok(account.ToAccountResponse());
+                if (account != null)
+                {
+                    user = account.User;
+                }
+            }
+            // if still user not found 
+            if (user == null)
+            {
+                return Results.BadRequest("Invalid SigningCredentials");
+            }
+
+            // logged in user 
+            var loggedInUserId = logedInuser.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (loggedInUserId != user.Id.ToString()) return Results.Forbid();
+
+            var UpdatedUser = new {
+                user.OwnerName,
+                user.Email
+            };
+
+            return Results.Ok(UpdatedUser);
         }).RequireAuthorization();
 
         // Check balance 
@@ -111,7 +123,7 @@ public static class AccountEndpoints
             AppDbContext db,
             ClaimsPrincipal user) =>
         {
-            var account = await db.Accounts
+            var account = await db.BankAccounts
                 .FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
 
             if (account is null) return Results.NotFound("Invalid accountNumber");
@@ -139,7 +151,7 @@ public static class AccountEndpoints
                 int currentSize = (pageSize ?? 10) < 1 ? 10 : pageSize.Value;
                 currentSize = currentSize > 50 ? 50 : currentSize;
 
-                var account = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
+                var account = await db.BankAccounts.FirstOrDefaultAsync(a => a.AccountNumber == accountNumber);
                 if (account is null) return Results.NotFound("Account Not Found ");
 
                 //2.  Security Authentication 

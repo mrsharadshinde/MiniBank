@@ -22,7 +22,7 @@
 
   <ItemGroup>
     <Folder Include="Helpers\" />
-    <Folder Include="Validators\" />
+    <Folder Include="Validators\Identity\" />
     <Folder Include="Workers\" />
   </ItemGroup>
 

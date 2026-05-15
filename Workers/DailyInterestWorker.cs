@@ -51,7 +51,7 @@ public class DailyInterestWorker : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         //2. Find all Active Savings accounts
-        var savingsAccounts = await db.Accounts
+        var savingsAccounts = await db.BankAccounts
             .Where(a => a.AccountType == AccountType.Saving && a.Status == "Active")
             .ToListAsync();
 
@@ -92,7 +92,7 @@ public class DailyInterestWorker : BackgroundService
                 account.Version = Guid.NewGuid();
 
                 // uPDATE THE bank BALANCE 
-                var ReserveAccount = await db.Accounts.FindAsync(reserveAccountId);
+                var ReserveAccount = await db.BankAccounts.FindAsync(reserveAccountId);
                 if (ReserveAccount != null)
                 {
                     ReserveAccount.Balance -= interestEarned;

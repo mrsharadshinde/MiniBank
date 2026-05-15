@@ -2,7 +2,7 @@ using FluentValidation;
 using MiniBankWallet.DTOs.Accounts;
 using MiniBankWallet.Models;
 
-namespace MiniBankWallet.Validators;
+namespace MiniBankWallet.Validators.Banking;
 
 public class CreateAccountRequestValidator: AbstractValidator<CreateAccountRequest>
 {
@@ -16,6 +16,11 @@ public class CreateAccountRequestValidator: AbstractValidator<CreateAccountReque
             .NotEmpty().WithMessage("Owner Name is required.")
             .MinimumLength(2).WithMessage("Must be atlest 2 charectors long")
             .MaximumLength(50).WithMessage("Name cannot exceed 50 charectors") ;
+        
+        RuleFor(x =>x.AadharNumber )
+            .NotEmpty().WithMessage("Aadhar Number is requered.")
+            .MinimumLength(12).WithMessage("Addhar number cannot be less than 12 charectors")
+            .MaximumLength(12).WithMessage("Aadhar Number cannot exceed 12 charectors") ;
         
         // 2. Mobile number rules 
        RuleFor(x => x.MobileNumber)

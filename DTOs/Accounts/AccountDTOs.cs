@@ -3,6 +3,7 @@ namespace MiniBankWallet.DTOs.Accounts;
 // WHAT THE USER SENDS US TO OPEN AN ACCOUNT
 public record CreateAccountRequest(
     string OwnerName, 
+    string AadharNumber,
     string MobileNumber, 
     string? Email, // Optional
     string AccountType   // keeping as string for json parsing 
@@ -19,6 +20,8 @@ public record UpdateAccountRequest(
 public record AccountResponse(
     string AccountNumber, 
     string OwnerName, 
-    string Status, 
-    decimal Balance
+    string Email,
+    string AccountType,
+    decimal Balance,
+    string Status
 );

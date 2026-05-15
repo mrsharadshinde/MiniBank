@@ -1,4 +1,5 @@
 using System;
+using MiniBankWallet.Models.Banking;
 
 namespace MiniBankWallet.Models;
 
@@ -12,7 +13,7 @@ public class LedgerEntry
 
     // The account this specific line affests 
     public int AccountId  {get; set;}
-    public Account Account {get; set;} = null!;
+    public BankAccount Account {get; set;} = null!;
 
     public decimal Amount {get; set;}
 

@@ -30,21 +30,21 @@ public static class TransferEndpoints
             AppDbContext db,                                                 // Injects the Database connection
             ClaimsPrincipal user) =>                                         // Injects the decoded JWT Token data
         {
-            
-            var validatorResult = await validator.ValidateAsync(request);
-            if(!validatorResult.IsValid) return Results.ValidationProblem(validatorResult.ToDictionary());
 
-            var sender = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == request.FromAccountNumber);
-            var receiver = await db.Accounts.FirstOrDefaultAsync(a => a.AccountNumber == request.ToAccountNumber);
+            var validatorResult = await validator.ValidateAsync(request);
+            if (!validatorResult.IsValid) return Results.ValidationProblem(validatorResult.ToDictionary());
+
+            var sender = await db.BankAccounts.FirstOrDefaultAsync(a => a.AccountNumber == request.FromAccountNumber);
+            var receiver = await db.BankAccounts.FirstOrDefaultAsync(a => a.AccountNumber == request.ToAccountNumber);
 
             if (sender is null || receiver is null)
                 return Results.NotFound("One or both accounts not exist.");
 
-            if (sender.Status != "Active" || receiver.Status != "Active") 
+            if (sender.Status != "Active" || receiver.Status != "Active")
                 return Results.BadRequest("Both the accounts must be 'Active' to perform transfer ");
             var loggedInUserId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            if (loggedInUserId != sender.Id.ToString())
+            if (loggedInUserId != sender.UserID.ToString())
             {
                 // The Bouncer kicks them out: You cannot spend someone else's money!
                 return Results.Forbid();
@@ -88,19 +88,26 @@ public static class TransferEndpoints
                 db.TransactionRecords.Add(record);
 
                 // CREATE the double-Entry Ledger Lines 
+                // Safe way to get the last 4 digits (or fewer if the string is very short)
+                string receiverMaskedAccNo = receiver.AccountNumber.Length >= 4
+                    ? receiver.AccountNumber[^4..]
+                    : receiver.AccountNumber;
+                string senderMaskedAccNO = sender.AccountNumber.Length >= 4
+                    ? sender.AccountNumber[^4..]
+                    : sender.AccountNumber;
 
                 var ledgerLines = LedgerHelper.CreateDoubleEntry(
                     record: record,
                     senderAccountId: sender.Id,
                     receiverAccountId: receiver.Id,
                     amount: request.Amount,
-                    debitDescription: $"Transfer to Account ending in {receiver.AccountNumber[^4..]}",
-                    creditDescription: $"Transfer from Account ending in {sender.AccountNumber[^4..]}"
+                    debitDescription: $"Transfer to Account ending in {receiverMaskedAccNo}",
+                    creditDescription: $"Transfer from Account ending in {senderMaskedAccNO}"
                 );
                 db.LedgerEntries.AddRange(ledgerLines);
 
-                Console.WriteLine($"[for sender] Your account ending with ******{sender.AccountNumber[^4..]} is debited with {request.Amount} \nwith transaction Id: {record.Id}");
-                Console.WriteLine($"[for receiver] Your account ending with *****{receiver.AccountNumber[^4..]} is credited with {request.Amount} \nwith transaction Id: {record.Id}");
+                Console.WriteLine($"[for sender] Your account ending with ******{senderMaskedAccNO} is debited with {request.Amount} \nwith transaction Id: {record.Id}");
+                Console.WriteLine($"[for receiver] Your account ending with *****{receiverMaskedAccNo} is credited with {request.Amount} \nwith transaction Id: {record.Id}");
 
                 //  Save and Commit
                 await db.SaveChangesAsync();
