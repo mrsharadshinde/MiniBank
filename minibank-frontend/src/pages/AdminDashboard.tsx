@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import axiosClient from "../api/axiosClient";
 import { 
   ShieldCheck, LogOut, Loader2, CheckCircle, XCircle, Clock, 
-  ArrowRight, IndianRupee, AlertCircle, Users, Landmark, UserPlus 
+  ArrowRight, IndianRupee, AlertCircle, Users, Landmark, UserPlus, Archive 
 } from "lucide-react";
 
 // --- INTERFACES ---
@@ -29,7 +29,7 @@ export default function AdminDashboard() {
   const { logout, role } = useAuth();
   
   // --- UI STATE ---
-  const [activeTab, setActiveTab] = useState<"transfers" | "accounts" | "staff">("transfers");
+  const [activeTab, setActiveTab] = useState<"transfers" | "accounts" | "staff" | "audit">("transfers");
   const [feedback, setFeedback] = useState({ message: "", isError: false });
   const [actionLoadingId, setActionLoadingId] = useState<string | number | null>(null);
 
@@ -45,10 +45,15 @@ export default function AdminDashboard() {
   const [staffForm, setStaffForm] = useState({ fullName: "", email: "", mobileNumber: "", aadharNumber: "" });
   const [isStaffLoading, setIsStaffLoading] = useState(false);
 
+  // --- AUDIT LOG STATE ---
+  const [rejectedTransfers, setRejectedTransfers] = useState<PendingTransfer[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+
   // --- EFFECTS ---
   useEffect(() => {
     if (activeTab === "transfers") fetchPendingTransfers();
     if (activeTab === "accounts") fetchPendingAccounts();
+    if (activeTab === "audit") fetchRejectedTransfers();
   }, [activeTab]);
 
   // ==========================================
@@ -133,6 +138,21 @@ export default function AdminDashboard() {
     }
   };
 
+  // ==========================================
+  // 4. AUDIT LOG LOGIC (Rejected Transfers)
+  // ==========================================
+  const fetchRejectedTransfers = async () => {
+    setIsAuditLoading(true);
+    try {
+      const response = await axiosClient.get("/api/approvals/rejected");
+      setRejectedTransfers(response.data);
+    } catch (error) {
+      setFeedback({ message: "Failed to load rejected transfers.", isError: true });
+    } finally {
+      setIsAuditLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -154,7 +174,7 @@ export default function AdminDashboard() {
         </header>
 
         {/* Tab Navigation */}
-        <div className="flex gap-4 mb-6">
+        <div className="flex flex-wrap gap-4 mb-6">
           <button onClick={() => { setActiveTab("transfers"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "transfers" ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <Clock className="w-5 h-5" /> Pending Transfers
           </button>
@@ -163,6 +183,9 @@ export default function AdminDashboard() {
           </button>
           <button onClick={() => { setActiveTab("staff"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "staff" ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <UserPlus className="w-5 h-5" /> Provision Teller
+          </button>
+          <button onClick={() => { setActiveTab("audit"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "audit" ? "bg-slate-800 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+            <Archive className="w-5 h-5" /> Audit Log
           </button>
         </div>
 
@@ -277,6 +300,43 @@ export default function AdminDashboard() {
                 {isStaffLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "Provision Teller & Send Credentials"}
               </button>
             </form>
+          </section>
+        )}
+
+        {/* ========================================== */}
+        {/* TAB 4: AUDIT LOG (Read-Only) */}
+        {/* ========================================== */}
+        {activeTab === "audit" && (
+          <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
+            <div className="p-6 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
+              <h2 className="text-lg font-bold text-slate-900">Rejected Transfers Archive</h2>
+              <span className="ml-auto bg-slate-200 text-slate-700 py-1 px-3 rounded-full text-xs font-bold">{rejectedTransfers.length} Records</span>
+            </div>
+            {isAuditLoading ? (
+              <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-slate-400" /></div>
+            ) : rejectedTransfers.length === 0 ? (
+              <p className="text-center py-16 text-slate-500">No rejected transfers found in the audit log.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {rejectedTransfers.map((transfer) => (
+                  <li key={transfer.id} className="p-6 bg-slate-50/30 flex flex-col md:flex-row justify-between gap-6 opacity-75 hover:opacity-100 transition-opacity">
+                    <div className="flex-1 space-y-3">
+                      <div className="text-sm text-slate-500 font-medium">ID: #{transfer.id} • Req by: <strong className="text-slate-700">{transfer.makerName}</strong> • {new Date(transfer.createdAt).toLocaleString()}</div>
+                      <div className="flex gap-4">
+                        <div className="bg-white border border-slate-200 p-2 rounded shadow-sm"><p className="text-[10px] text-slate-400">SENDER ID</p><p className="font-mono text-sm">{transfer.fromAccountId}</p></div>
+                        <ArrowRight className="text-slate-300 mt-4" />
+                        <div className="bg-white border border-slate-200 p-2 rounded shadow-sm"><p className="text-[10px] text-slate-400">RECEIVER ID</p><p className="font-mono text-sm">{transfer.toAccountId}</p></div>
+                      </div>
+                      <p className="text-sm bg-rose-50 text-rose-700 p-2 rounded-lg inline-block border border-rose-100"><strong>Rejection Reason:</strong> {transfer.remark}</p>
+                    </div>
+                    <div className="text-right flex flex-col items-end gap-2">
+                      <p className="text-2xl font-bold text-slate-500 flex items-center"><IndianRupee className="w-5 h-5 text-slate-400" />{transfer.amount.toLocaleString()}</p>
+                      <span className="flex items-center gap-1 text-rose-600 font-bold text-sm bg-white border border-rose-200 px-3 py-1 rounded-full"><XCircle className="w-4 h-4"/> Rejected</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         )}
 

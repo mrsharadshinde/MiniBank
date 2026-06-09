@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ArrowUpRight, ArrowDownLeft, Clock, Loader2 } from "lucide-react";
+import {  ArrowLeftRight, ChevronRight, Loader2, AlertCircle,ChevronLeft } from "lucide-react";
 import axiosClient from "../api/axiosClient";
 
 interface TransactionHistoryProps {
@@ -12,36 +12,47 @@ interface Transaction {
   amount: number;
   date: string; 
   description: string;
-  type: string; // 'DEBIT' or 'CREDIT'
+  type: "DEBIT" | "CREDIT";
   status?: string; // Optional, just in case it's not sent
+}
+
+interface PaginationMetadata{
+  currentPage: number;
+  pageSize: number;
+  totalRecords: number;
+  totalPages: number;
 }
 
 export default function TransactionHistory({ accountNumber }: TransactionHistoryProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [meta, setMeta] = useState<PaginationMetadata | null>(null);
+
+  const [page , setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const fetchTransactions = async () => {
+    if (!accountNumber) return;
+    fetchTransactions(page);
+  }, [accountNumber, page]); // Re-run if the account changes or the page changes 
+   
+  const fetchTransactions = async (pageNumber: number) => {
       setIsLoading(true);
       setError("");
 
       try {
         const response = await axiosClient.get(`/api/accounts/${accountNumber}/transactions`);
+
+        setTransactions(response.data.data || []);
+        setMeta(response.data.metadata);
         
-        // 2. UPDATED EXTRACTION: Grabs the inner 'data' property
-        const txList = response.data.data || []; 
-        
-        setTransactions(txList);
       } catch (err: any) {
         setError("Could not load recent transactions. Please try again.");
       } finally {
         setIsLoading(false);
       }
     };
-
-    fetchTransactions();
-  }, [accountNumber]);
+    if (!accountNumber) return null;
 
   if (isLoading) {
     return (
@@ -60,65 +71,101 @@ export default function TransactionHistory({ accountNumber }: TransactionHistory
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mt-6 animate-in slide-in-from-top-4 fade-in duration-300">
-      <div className="p-6 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
-        <Clock className="w-5 h-5 text-brand-600" />
-        <h3 className="text-lg font-bold text-slate-900">Recent Transactions</h3>
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      {/* Header */}
+      <div className="p-6 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
+        <div className="bg-indigo-50 p-2 rounded-lg">
+          <ArrowLeftRight className="w-5 h-5 text-indigo-600" />
+        </div>
+        <div>
+          <h3 className="text-lg font-bold text-slate-900">Transaction Ledger</h3>
+          <p className="text-sm text-slate-500 font-mono">Account: {accountNumber}</p>
+        </div>
       </div>
 
+      {/* Error State */}
+      {error && (
+        <div className="p-6">
+          <div className="p-4 bg-rose-50 text-rose-700 rounded-xl flex items-center gap-2 border border-rose-100">
+            <AlertCircle className="w-5 h-5 shrink-0" />
+            <p>{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Data Grid */}
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider border-b border-slate-100">
-              <th className="p-4 font-semibold">Transaction Details</th>
-              <th className="p-4 font-semibold">Date</th>
-              <th className="p-4 font-semibold text-right">Amount</th>
+            <tr className="bg-slate-50 border-b border-slate-100 text-sm font-bold text-slate-500 uppercase tracking-wider">
+              <th className="p-4 pl-6">Date</th>
+              <th className="p-4">Description</th>
+              <th className="p-4 text-right">Amount (₹)</th>
+              <th className="p-4 pl-6">Type</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
-            {transactions.length === 0 ? (
+          <tbody className="divide-y divide-slate-50">
+            {isLoading ? (
               <tr>
-                <td colSpan={3} className="p-12 text-center text-slate-500">
-                  No recent transactions found for this account.
+                <td colSpan={4} className="py-12 text-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto" />
+                </td>
+              </tr>
+            ) : transactions.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="py-12 text-center text-slate-500">
+                  No transactions found for this account.
                 </td>
               </tr>
             ) : (
-              transactions.map((tx, index) => {
-                // Determine if it's a credit by checking uppercase
-                const isCredit = tx?.type?.toUpperCase() === 'CREDIT';
-
-                return (
-                  // 3. UPDATED KEYS & FALLBACKS: Uses transactionId
-                  <tr key={tx?.transactionId || index} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-4">
-                      <div className="flex items-center gap-4">
-                        <div className={`p-2 rounded-full ${isCredit ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-600'}`}>
-                          {isCredit ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-900">{tx?.description || 'Bank Transfer'}</p>
-                          <p className="text-xs text-slate-500">{tx?.status || 'Completed'}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-4 text-slate-600 text-sm">
-                      {/* 4. UPDATED DATE PARSING: Uses tx.date */}
-                      {new Date(tx?.date || new Date()).toLocaleDateString('en-IN', { 
-                        day: 'numeric', month: 'short', year: 'numeric' 
-                      })}
-                    </td>
-                    <td className="p-4 text-right">
-                      <span className={`font-bold tracking-tight ${isCredit ? 'text-emerald-600' : 'text-slate-900'}`}>
-                        {isCredit ? '+' : '-'}₹{(tx?.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })
+              transactions.map((tx) => (
+                // FIX 1: Use transactionId
+                <tr key={tx.transactionId} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="p-4 pl-6 text-sm text-slate-600 whitespace-nowrap">
+                    {new Date(tx.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
+                  </td>
+                  <td className="p-4 text-sm font-medium text-slate-900">{tx.description}</td>
+                  {/* FIX 2: Check for uppercase 'CREDIT' */}
+                  <td className={`p-4 text-sm font-bold text-right whitespace-nowrap ${tx.type === 'CREDIT' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                    {tx.type === 'CREDIT' ? '+' : '-'} {tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="p-4 pl-6">
+                    {/* FIX 3: Check for uppercase 'CREDIT' */}
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${tx.type === 'CREDIT' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                      {tx.type}
+                    </span>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {meta && meta.totalPages > 1 && (
+        <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <p className="text-sm text-slate-500">
+            Showing page <strong className="text-slate-900">{meta.currentPage}</strong> of <strong className="text-slate-900">{meta.totalPages}</strong>
+          </p>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={meta.currentPage === 1 || isLoading}
+              className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors flex items-center gap-1 text-sm font-bold text-slate-600"
+            >
+              <ChevronLeft className="w-4 h-4" /> Prev
+            </button>
+            <button 
+              onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
+              disabled={meta.currentPage === meta.totalPages || isLoading}
+              className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors flex items-center gap-1 text-sm font-bold text-slate-600"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
