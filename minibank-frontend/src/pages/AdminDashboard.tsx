@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import axiosClient from "../api/axiosClient";
-import { 
-  ShieldCheck, LogOut, Loader2, CheckCircle, XCircle, Clock, 
-  ArrowRight, IndianRupee, AlertCircle, Users, Landmark, UserPlus, Archive, Settings, Search, ArrowLeft
+import {
+  ShieldCheck, LogOut, Loader2, CheckCircle, XCircle, Clock,
+  ArrowRight, IndianRupee, AlertCircle, Users, Landmark, UserPlus, Archive, Settings, Search, ArrowLeft, Activity
 } from "lucide-react";
 
 // --- INTERFACES ---
@@ -30,8 +30,19 @@ type Customer = {
   id?: string | number;
   ownerName?: string;
   email?: string;
-  accountNumber?: string; 
+  accountNumber?: string;
 };
+
+interface AuditLog {
+  id: number;
+  performedByUserId: number;
+  performedByRole: string;
+  targetUserId: number;
+  action: string;
+  oldValue: string;
+  newValue: string;
+  timestamp: string;
+}
 
 export default function AdminDashboard() {
   const { logout, role } = useAuth();
@@ -66,14 +77,21 @@ export default function AdminDashboard() {
   const [isStaffLoading, setIsStaffLoading] = useState(false);
 
   // --- AUDIT LOG STATE ---
-  const [rejectedTransfers, setRejectedTransfers] = useState<PendingTransfer[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
+  const [auditActionFilter, setAuditActionFilter] = useState("");
+  const [auditAvailableActions, setAuditAvailableActions] = useState<string[]>([]);
 
   // --- EFFECTS ---
   useEffect(() => {
     if (activeTab === "transfers") fetchPendingTransfers();
     if (activeTab === "accounts") fetchPendingAccounts();
-    if (activeTab === "audit") fetchRejectedTransfers();
+    if (activeTab === "audit") {
+      fetchAvailableActions();
+      fetchAuditLogs(1);
+    }
   }, [activeTab]);
 
   // ==========================================
@@ -272,15 +290,55 @@ export default function AdminDashboard() {
   };
 
   // ==========================================
-  // 5. AUDIT LOG LOGIC (Rejected Transfers)
+  // 5. AUDIT LOG LOGIC
   // ==========================================
-  const fetchRejectedTransfers = async () => {
+  const fetchAvailableActions = async () => {
+    try {
+      const response = await axiosClient.get("/api/audit/actions");
+      setAuditAvailableActions(response.data.actions || []);
+    } catch (error) {
+      console.error("Failed to load audit actions.");
+    }
+  };
+
+  const fetchAuditLogs = async (page: number) => {
     setIsAuditLoading(true);
     try {
-      const response = await axiosClient.get("/api/approvals/rejected");
-      setRejectedTransfers(response.data);
+      const response = await axiosClient.get("/api/audit/logs", {
+        params: {
+          page,
+          pageSize: 15,
+          action: auditActionFilter || undefined
+        }
+      });
+      setAuditLogs(response.data.data);
+      setAuditTotalPages(response.data.pagination.totalPages);
+      setAuditPage(page);
+      setFeedback({ message: "", isError: false });
     } catch (error) {
-      setFeedback({ message: "Failed to load rejected transfers.", isError: true });
+      setFeedback({ message: "Failed to load audit logs.", isError: true });
+    } finally {
+      setIsAuditLoading(false);
+    }
+  };
+
+  const handleAuditFilterChange = async (newAction: string) => {
+    setAuditActionFilter(newAction);
+    setAuditPage(1);
+    // Fetch with new filter
+    setIsAuditLoading(true);
+    try {
+      const response = await axiosClient.get("/api/audit/logs", {
+        params: {
+          page: 1,
+          pageSize: 15,
+          action: newAction || undefined
+        }
+      });
+      setAuditLogs(response.data.data);
+      setAuditTotalPages(response.data.pagination.totalPages);
+    } catch (error) {
+      setFeedback({ message: "Failed to load audit logs.", isError: true });
     } finally {
       setIsAuditLoading(false);
     }
@@ -624,38 +682,130 @@ export default function AdminDashboard() {
         )}
 
         {/* ========================================== */}
-        {/* TAB 5: AUDIT LOG (Read-Only) */}
+        {/* TAB 5: AUDIT LOG VIEWER */}
         {/* ========================================== */}
         {activeTab === "audit" && (
           <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
             <div className="p-6 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
-              <h2 className="text-lg font-bold text-slate-900">Rejected Transfers Archive</h2>
-              <span className="ml-auto bg-slate-200 text-slate-700 py-1 px-3 rounded-full text-xs font-bold">{rejectedTransfers.length} Records</span>
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-slate-600" />
+                <h2 className="text-lg font-bold text-slate-900">Audit Trail</h2>
+              </div>
+              <p className="text-sm text-slate-500 ml-auto">All admin and staff actions</p>
             </div>
-            {isAuditLoading ? (
-              <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-slate-400" /></div>
-            ) : rejectedTransfers.length === 0 ? (
-              <p className="text-center py-16 text-slate-500">No rejected transfers found in the audit log.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {rejectedTransfers.map((transfer) => (
-                  <li key={transfer.id} className="p-6 bg-slate-50/30 flex flex-col md:flex-row justify-between gap-6 opacity-75 hover:opacity-100 transition-opacity">
-                    <div className="flex-1 space-y-3">
-                      <div className="text-sm text-slate-500 font-medium">ID: #{transfer.id} • Req by: <strong className="text-slate-700">{transfer.makerName}</strong> • {new Date(transfer.createdAt).toLocaleString()}</div>
-                      <div className="flex gap-4">
-                        <div className="bg-white border border-slate-200 p-2 rounded shadow-sm"><p className="text-[10px] text-slate-400">SENDER ID</p><p className="font-mono text-sm">{transfer.fromAccountId}</p></div>
-                        <ArrowRight className="text-slate-300 mt-4" />
-                        <div className="bg-white border border-slate-200 p-2 rounded shadow-sm"><p className="text-[10px] text-slate-400">RECEIVER ID</p><p className="font-mono text-sm">{transfer.toAccountId}</p></div>
-                      </div>
-                      <p className="text-sm bg-rose-50 text-rose-700 p-2 rounded-lg inline-block border border-rose-100"><strong>Rejection Reason:</strong> {transfer.remark}</p>
-                    </div>
-                    <div className="text-right flex flex-col items-end gap-2">
-                      <p className="text-2xl font-bold text-slate-500 flex items-center"><IndianRupee className="w-5 h-5 text-slate-400" />{transfer.amount.toLocaleString()}</p>
-                      <span className="flex items-center gap-1 text-rose-600 font-bold text-sm bg-white border border-rose-200 px-3 py-1 rounded-full"><XCircle className="w-4 h-4"/> Rejected</span>
-                    </div>
-                  </li>
+
+            {/* Filter Section */}
+            <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+              <label className="block text-sm font-bold text-slate-700 mb-2">Filter by Action</label>
+              <select
+                value={auditActionFilter}
+                onChange={(e) => handleAuditFilterChange(e.target.value)}
+                className="w-full md:w-64 px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 bg-white"
+              >
+                <option value="">All Actions</option>
+                {auditAvailableActions.map((action) => (
+                  <option key={action} value={action}>
+                    {action}
+                  </option>
                 ))}
-              </ul>
+              </select>
+            </div>
+
+            {/* Audit Logs Table */}
+            {isAuditLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+              </div>
+            ) : auditLogs.length === 0 ? (
+              <p className="text-center py-16 text-slate-500">No audit logs found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">ID</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Timestamp</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Action</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Performed By</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Target User</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Old Value</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">New Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {auditLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 font-mono text-xs text-slate-600">#{log.id}</td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {new Date(log.timestamp).toLocaleString('en-IN', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-semibold">
+                            {log.action}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs">{log.performedByUserId}</span>
+                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                              log.performedByRole === 'Admin'
+                                ? 'bg-slate-800 text-white'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}>
+                              {log.performedByRole}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 font-mono text-xs text-slate-600">
+                          #{log.targetUserId}
+                        </td>
+                        <td className="px-6 py-4 max-w-xs">
+                          <div className="bg-rose-50 text-rose-700 px-2 py-1 rounded text-xs border border-rose-100 break-words">
+                            {log.oldValue || '—'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 max-w-xs">
+                          <div className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-xs border border-emerald-100 break-words">
+                            {log.newValue || '—'}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {auditTotalPages > 1 && (
+              <div className="p-6 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-sm text-slate-600">
+                  Page <strong>{auditPage}</strong> of <strong>{auditTotalPages}</strong>
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => fetchAuditLogs(auditPage - 1)}
+                    disabled={auditPage === 1 || isAuditLoading}
+                    className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-medium hover:bg-slate-200 disabled:opacity-50 transition-colors"
+                  >
+                    ← Previous
+                  </button>
+                  <button
+                    onClick={() => fetchAuditLogs(auditPage + 1)}
+                    disabled={auditPage === auditTotalPages || isAuditLoading}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
             )}
           </section>
         )}
