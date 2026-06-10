@@ -41,7 +41,12 @@ export default function TransactionHistory({ accountNumber }: TransactionHistory
       setError("");
 
       try {
-        const response = await axiosClient.get(`/api/accounts/${accountNumber}/transactions`);
+        const response = await axiosClient.get(`/api/accounts/${accountNumber}/transactions`,{
+          params: {
+            page: pageNumber,
+            pageSize: 10
+          }
+        });
 
         setTransactions(response.data.data || []);
         setMeta(response.data.metadata);

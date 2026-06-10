@@ -35,32 +35,26 @@ export default function StaffLogin() {
         password
       });
 
+    login(response.data.token, response.data.refreshToken);
       // Check if password reset is required
-      if (response.status === 400 && response.data?.Code === "FORCE_PASSWORD_RESET") {
-        setFeedback({
-          message: "You must change your temporary password before continuing.",
-          isError: false
-        });
-        setStep(2);
-      } else {
-        // Successful login - save tokens and redirect
-        login(response.data.token, response.data.refreshToken);
-
-        // Redirect based on role
-        if (response.data.role === "Admin") {
-          navigate("/admin-dashboard");
-        } else if (response.data.role === "Teller") {
-          navigate("/staff-dashboard");
-        } else {
-          navigate("/dashboard");
-        }
-      }
     } catch (error: any) {
-      const errorMsg = error.response?.data?.Message ||
-                      error.response?.data?.message ||
-                      error.response?.data ||
+      const data = error.response?.data;
+      const forceResetCode = data?.code || data?.Code;
+      if (error.response?.status === 400 && forceResetCode === "FORCE_PASSWORD_RESET") {
+    setFeedback({
+      message: data?.message || data?.Message || "You must change your temporary password before continuing.",
+      isError: false
+    });
+    setStep(2);
+    return;
+  }
+     const errorMsg = data?.Message ||
+                      data?.message ||
+                      data ||
                       "Invalid email or password.";
-      setFeedback({ message: typeof errorMsg === 'string' ? errorMsg : "Login failed.", isError: true });
+      setFeedback({ 
+        message: typeof errorMsg === 'string' ? errorMsg : "Login failed.", 
+        isError: true });
     } finally {
       setIsLoading(false);
     }

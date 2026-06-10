@@ -12,7 +12,8 @@ import {
   ArrowUpFromLine,
   IndianRupee,
   History,
-  UserCog
+  UserCog,
+  CheckCircle
 } from "lucide-react";
 import axiosClient from "../api/axiosClient";
 import TransactionHistory from "../components/TransactionHistory";
@@ -55,10 +56,13 @@ export default function StaffDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [feedback, setFeedback] = useState({ message: "", isError: false });
 
+  // Success confirmation state
+  const [successData, setSuccessData] = useState<any>(null);
+
   // ==========================================
   // 1. SEARCH CUSTOMER
   // ==========================================
-  const handleSearch = async (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
     setFeedback({ message: "", isError: false });
@@ -79,7 +83,7 @@ export default function StaffDashboard() {
   // ==========================================
   // 2. PROCESS DEPOSIT / WITHDRAW
   // ==========================================
-  const handleTransaction = async (e: React.FormEvent) => {
+  const handleTransaction = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!activeAction || !searchIdentifier) return;
 
@@ -115,7 +119,7 @@ export default function StaffDashboard() {
   // ==========================================
   // 3. UPDATE CONTACT INFO
   // ==========================================
-  const handleUpdateContact = async (e: React.FormEvent) => {
+  const handleUpdateContact = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedCustomer?.id) {
       setFeedback({ message: "System Error: Missing User ID. Ensure C# returns 'Id' in search endpoint.", isError: true });
@@ -135,6 +139,104 @@ export default function StaffDashboard() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // ==========================================
+  // 4. KYC ONBOARDING FLOW
+  // ==========================================
+  const handleRequestKycOtp = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setFeedback({ message: "", isError: false });
+
+    try {
+      await axiosClient.post("/api/kyc/send-otp", {
+        mobileNumber: formData.mobileNumber,
+        email: formData.email,
+      });
+
+      setKycOtps({ mobileOtp: "", emailOtp: "" });
+      setKycToken("");
+      setOnboardStep(2);
+      setFeedback({
+        message: "Verification codes sent to mobile and email.",
+        isError: false,
+      });
+    } catch (error: any) {
+      setFeedback({
+        message: error?.response?.data ?? "Failed to send verification codes.",
+        isError: true,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyKycOtp = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setFeedback({ message: "", isError: false });
+
+    try {
+      const response = await axiosClient.post("/api/kyc/verify-otp", {
+        mobileNumber: formData.mobileNumber,
+        email: formData.email,
+        mobileOtp: kycOtps.mobileOtp,
+        emailOtp: kycOtps.emailOtp,
+      });
+
+      setKycToken(response.data.kycToken ?? response.data.KycToken ?? "");
+      setOnboardStep(3);
+      setFeedback({
+        message: "Contact verified. Please enter government details.",
+        isError: false,
+      });
+    } catch (error: any) {
+      setFeedback({
+        message: error?.response?.data ?? "Invalid verification codes.",
+        isError: true,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFinalSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      const response = await axiosClient.post("/api/accounts", {
+        ...formData,
+        kycToken,
+      });
+
+      setSuccessData(response.data);
+    } catch (error: any) {
+      let errorMsg = "Failed to create account. Please check inputs.";
+      if (error.response?.data) {
+        const data = error.response.data;
+        if (typeof data === 'string') {
+          errorMsg = data;
+        } else if (data.errors) {
+          const firstErrorKey = Object.keys(data.errors)[0];
+          errorMsg = data.errors[firstErrorKey][0];
+        } else if (data.detail) {
+          errorMsg = data.detail;
+        }
+      }
+      setFeedback({ message: errorMsg, isError: true });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCloseSuccess = () => {
+    setSuccessData(null);
+    setOnboardStep(1);
+    setFormData({ ownerName: "", aadharNumber: "", mobileNumber: "", email: "", accountType: "Saving" });
+    setKycOtps({ mobileOtp: "", emailOtp: "" });
+    setKycToken("");
   };
 
   return (
@@ -321,9 +423,165 @@ export default function StaffDashboard() {
         {/* TAB 2: KYC ONBOARDING */}
         {/* ============================== */}
         {activeTab === "onboard" && (
-           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <p className="text-slate-500 text-center py-12">KYC Form remains exactly the same as previously built.</p>
-           </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 animate-in fade-in">
+
+            {/* SUCCESS CONFIRMATION SCREEN */}
+            {successData ? (
+              <div className="max-w-lg mx-auto text-center space-y-6 py-12">
+                <div className="flex justify-center mb-6">
+                  <div className="bg-emerald-100 p-6 rounded-full">
+                    <CheckCircle className="w-16 h-16 text-emerald-600" />
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-3xl font-bold text-slate-900 mb-2">Account Created Successfully!</h2>
+                  <p className="text-slate-600">The customer account has been provisioned and is ready to use.</p>
+                </div>
+
+                <div className="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-6 space-y-4 text-left">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer Name</p>
+                    <p className="text-xl font-bold text-slate-900">{successData.ownerName || "N/A"}</p>
+                  </div>
+
+                  <div className="border-t border-emerald-100 pt-4 space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Account Number</p>
+                    <p className="text-2xl font-mono font-bold text-emerald-700 bg-white px-4 py-2 rounded-lg border border-emerald-200 text-center tracking-widest">
+                      {successData.accountNumber || successData.AccountNumber || "Generating..."}
+                    </p>
+                  </div>
+
+                  <div className="border-t border-emerald-100 pt-4 grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Account Type</p>
+                      <p className="text-lg font-bold text-slate-800">{successData.accountType || successData.AccountType || "Standard"}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</p>
+                      <p className="text-lg font-bold text-emerald-600 bg-emerald-100 px-3 py-1 rounded-lg inline-block">
+                        {successData.status || successData.Status || "Pending"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {successData.email && (
+                    <div className="border-t border-emerald-100 pt-4 space-y-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</p>
+                      <p className="text-sm text-slate-700">{successData.email}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-left">
+                  <p className="text-sm text-blue-800"><strong>Next Steps:</strong> The customer can now use their account number to perform transactions. An email confirmation has been sent to their registered email address.</p>
+                </div>
+
+                <button
+                  onClick={handleCloseSuccess}
+                  className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition-colors shadow-md"
+                >
+                  Close & Return to Onboarding
+                </button>
+              </div>
+            ) : (
+              <>
+
+            {/* Progress Tracker */}
+            <div className="flex items-center justify-between mb-8 relative">
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-slate-100 -z-10 rounded-full"></div>
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-emerald-500 -z-10 rounded-full transition-all duration-500" style={{ width: onboardStep === 1 ? '0%' : onboardStep === 2 ? '50%' : '100%' }}></div>
+
+              {[1, 2, 3].map((step) => (
+                <div key={step} className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-4 ${onboardStep >= step ? 'bg-emerald-600 border-emerald-100 text-white' : 'bg-slate-100 border-white text-slate-400'}`}>
+                  {step}
+                </div>
+              ))}
+            </div>
+
+            <div className="max-w-lg mx-auto">
+              
+              {/* STEP 1: REQUEST OTP */}
+              {onboardStep === 1 && (
+                <form onSubmit={handleRequestKycOtp} className="space-y-5 animate-in slide-in-from-right-4">
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold text-slate-900">Contact Verification</h2>
+                    <p className="text-slate-500 text-sm">Step 1: Enter customer details to send secure OTPs.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Mobile Number</label>
+                    <input type="tel" required value={formData.mobileNumber} onChange={e => setFormData({...formData, mobileNumber: e.target.value})} placeholder="e.g. 9876543210" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Email Address</label>
+                    <input type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} placeholder="customer@example.com" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <button type="submit" disabled={isLoading} className="w-full bg-slate-800 text-white font-bold py-4 rounded-xl hover:bg-slate-900 transition-colors shadow-md mt-4">
+                    {isLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "Send Verification Codes"}
+                  </button>
+                </form>
+              )}
+
+              {/* STEP 2: VERIFY OTP */}
+              {onboardStep === 2 && (
+                <form onSubmit={handleVerifyKycOtp} className="space-y-5 animate-in slide-in-from-right-4">
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold text-slate-900">Enter Security Codes</h2>
+                    <p className="text-slate-500 text-sm">Step 2: Ask the customer for the codes sent to their devices.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Mobile OTP</label>
+                      <input type="text" required maxLength={6} value={kycOtps.mobileOtp} onChange={e => setKycOtps({...kycOtps, mobileOtp: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 text-center font-mono tracking-widest text-lg" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Email OTP</label>
+                      <input type="text" required maxLength={6} value={kycOtps.emailOtp} onChange={e => setKycOtps({...kycOtps, emailOtp: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 text-center font-mono tracking-widest text-lg" />
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <button type="button" onClick={() => setOnboardStep(1)} className="px-6 py-4 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors">Back</button>
+                    <button type="submit" disabled={isLoading} className="flex-1 bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition-colors shadow-md">
+                      {isLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "Verify Identity"}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* STEP 3: ACCOUNT CREATION */}
+              {onboardStep === 3 && (
+                <form onSubmit={handleFinalSubmit} className="space-y-5 animate-in slide-in-from-right-4">
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold text-slate-900">Finalize KYC Profile</h2>
+                    <p className="text-slate-500 text-sm">Step 3: Identity verified. Complete the core banking profile.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Full Legal Name</label>
+                    <input type="text" required value={formData.ownerName} onChange={e => setFormData({...formData, ownerName: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Government ID (12-Digit)</label>
+                    <input type="text" required maxLength={12} value={formData.aadharNumber} onChange={e => setFormData({...formData, aadharNumber: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 font-mono tracking-widest" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">Account Product Type</label>
+                    <select value={formData.accountType} onChange={e => setFormData({...formData, accountType: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 bg-white">
+                      <option value="Checking">Checking</option>
+                      <option value="Saving">Saving</option>
+                      <option value="Business">Business</option>
+                      <option value="Student">Student</option>
+                    </select>
+                  </div>
+                  <button type="submit" disabled={isLoading} className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition-colors shadow-md mt-4">
+                    {isLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "Provision Bank Account"}
+                  </button>
+                </form>
+              )}
+
+            </div>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
