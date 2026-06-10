@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Wallet, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react';
+import { Wallet, ArrowRight, Loader2, CheckCircle2, Briefcase } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import axiosClient from '../api/axiosClient';
 import { useAuth } from '../context/AuthContext'; 
 
@@ -128,6 +129,17 @@ export default function Login() {
           </form>
 
         )}
+
+        {/* Staff Login Link */}
+        <div className="mt-6 pt-6 border-t border-slate-100">
+          <p className="text-sm text-slate-500 text-center mb-3">Are you a staff member?</p>
+          <Link
+            to="/staff-login"
+            className="w-full bg-indigo-600 text-white font-semibold py-3 rounded-xl hover:bg-indigo-700 flex items-center justify-center gap-2 transition-colors"
+          >
+            <Briefcase className="w-5 h-5" /> Staff Portal
+          </Link>
+        </div>
 
       </div>
     </div>
