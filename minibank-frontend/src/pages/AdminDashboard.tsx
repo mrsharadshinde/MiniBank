@@ -25,14 +25,6 @@ interface PendingAccount {
   email: string;
 }
 
-// Added to support the Manage Accounts search feature
-type Customer = {
-  id?: string | number;
-  ownerName?: string;
-  email?: string;
-  accountNumber?: string;
-};
-
 interface AuditLog {
   id: number;
   performedByUserId: number;
@@ -44,11 +36,27 @@ interface AuditLog {
   timestamp: string;
 }
 
+// --- UPGRADED INTERFACES TO MATCH C# ACCOUNTLOOKUPRESPONSE ---
+type BankAccountInfo = {
+  accountNumber: string;
+  accountType: string;
+  status: string;
+  balance: number;
+};
+
+type CustomerLookupResponse = {
+  userId: number;
+  ownerName: string;
+  email: string;
+  mobileNumber: string;
+  matchedAccountNumber: string | null;
+  accounts: BankAccountInfo[];
+};
+
 export default function AdminDashboard() {
   const { logout, role } = useAuth();
   
   // --- UI STATE ---
-  // Added "manage" to the active tabs
   const [activeTab, setActiveTab] = useState<"transfers" | "accounts" | "manage" | "staff" | "audit">("transfers");
   const [feedback, setFeedback] = useState({ message: "", isError: false });
   const [actionLoadingId, setActionLoadingId] = useState<string | number | null>(null);
@@ -63,7 +71,8 @@ export default function AdminDashboard() {
 
   // --- MANAGE ACCOUNTS STATE (Status Updates) ---
   const [searchAccNum, setSearchAccNum] = useState("");
-  const [managedAccount, setManagedAccount] = useState<Customer | null>(null);
+  const [managedAccount, setManagedAccount] = useState<CustomerLookupResponse | null>(null);
+  const [selectedAccForManage, setSelectedAccForManage] = useState<string>(""); // Explicitly holds the 12-digit number
   const [manageForm, setManageForm] = useState({ newStatus: "Active", remarks: "" });
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [isUpdateLoading, setIsUpdateLoading] = useState(false);
@@ -83,7 +92,6 @@ export default function AdminDashboard() {
   const [auditTotalPages, setAuditTotalPages] = useState(1);
   const [auditActionFilter, setAuditActionFilter] = useState("");
   const [auditAvailableActions, setAuditAvailableActions] = useState<string[]>([]);
- 
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -96,7 +104,7 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   // ==========================================
-  // 1. TRANSFERS LOGIC (Maker-Checker)
+  // 1. TRANSFERS LOGIC
   // ==========================================
   const fetchPendingTransfers = async () => {
     setIsTransfersLoading(true);
@@ -128,7 +136,7 @@ export default function AdminDashboard() {
   };
 
   // ==========================================
-  // 2. ACCOUNTS LOGIC (Pending Activations)
+  // 2. ACCOUNTS LOGIC
   // ==========================================
   const fetchPendingAccounts = async () => {
     setIsAccountsLoading(true);
@@ -167,14 +175,23 @@ export default function AdminDashboard() {
     setIsSearchLoading(true);
     setFeedback({ message: "", isError: false });
     setManagedAccount(null);
+    setSelectedAccForManage("");
 
     try {
-      // Reusing the same endpoint the Teller uses to verify accounts
       const response = await axiosClient.get(`/api/accounts/${searchAccNum}`);
-      setManagedAccount(response.data);
-      setFeedback({ message: "Account found.", isError: false });
+      const data: CustomerLookupResponse = response.data;
+      setManagedAccount(data);
+
+      // Auto-select the target 12-digit account number safely
+      if (data.matchedAccountNumber) {
+        setSelectedAccForManage(data.matchedAccountNumber);
+      } else if (data.accounts && data.accounts.length > 0) {
+        setSelectedAccForManage(data.accounts[0].accountNumber);
+      }
+      
+      setFeedback({ message: "Customer file found.", isError: false });
     } catch {
-      setFeedback({ message: "Account not found. Ensure you are using the 12-digit number.", isError: true });
+      setFeedback({ message: "Customer or Account not found.", isError: true });
     } finally {
       setIsSearchLoading(false);
     }
@@ -182,23 +199,33 @@ export default function AdminDashboard() {
 
   const handleUpdateManagedStatus = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const targetAccount = managedAccount?.accountNumber || searchAccNum;
-    if (!targetAccount) return;
+    
+    // Strict block: Do not proceed if we don't have a 12-digit account string
+    if (!selectedAccForManage) {
+      setFeedback({ message: "Vulnerability block: Please select a valid 12-digit account number.", isError: true });
+      return;
+    }
 
     setIsUpdateLoading(true);
     setFeedback({ message: "", isError: false });
 
     try {
-      const response = await axiosClient.put(`/api/admin/accounts/${targetAccount}/status`, {
+      const response = await axiosClient.put(`/api/admin/accounts/${selectedAccForManage}/status`, {
         newStatus: manageForm.newStatus,
         remarks: manageForm.remarks
       });
       
       setFeedback({ message: response.data.Message || response.data.message || `Status successfully updated to ${manageForm.newStatus}`, isError: false });
       
-      // Reset form on success
-      setManagedAccount(null);
-      setSearchAccNum("");
+      // Update local state instantly so UI shows the new status
+      setManagedAccount(prev => {
+        if (!prev) return prev;
+        const updatedAccounts = prev.accounts.map(acc => 
+          acc.accountNumber === selectedAccForManage ? { ...acc, status: manageForm.newStatus } : acc
+        );
+        return { ...prev, accounts: updatedAccounts };
+      });
+
       setManageForm({ newStatus: "Active", remarks: "" });
     } catch (error: any) {
       setFeedback({ message: error.response?.data || "Failed to update status.", isError: true });
@@ -208,7 +235,7 @@ export default function AdminDashboard() {
   };
 
   // ==========================================
-  // 4. PROVISION STAFF LOGIC (OTP-based)
+  // 4. PROVISION STAFF LOGIC
   // ==========================================
   const handleSendStaffOtp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -268,12 +295,7 @@ export default function AdminDashboard() {
         staffProvisioningToken: staffProvisioningToken
       });
       setFeedback({ message: response.data.message || "Teller provisioned successfully.", isError: false });
-      // Reset to step 1
-      setStaffProvisionStep(1);
-      setStaffOtpForm({ email: "", mobileNumber: "" });
-      setStaffOtpVerify({ mobileOtp: "", emailOtp: "" });
-      setStaffForm({ fullName: "", email: "", mobileNumber: "", aadharNumber: "", staffProvisioningToken: "" });
-      setStaffProvisioningToken("");
+      handleResetStaffProvisioning();
     } catch (error: any) {
       setFeedback({ message: error.response?.data?.Message || error.response?.data || "Failed to provision staff.", isError: true });
     } finally {
@@ -326,7 +348,6 @@ export default function AdminDashboard() {
   const handleAuditFilterChange = async (newAction: string) => {
     setAuditActionFilter(newAction);
     setAuditPage(1);
-    // Fetch with new filter
     setIsAuditLoading(true);
     try {
       const response = await axiosClient.get("/api/audit/logs", {
@@ -370,16 +391,12 @@ export default function AdminDashboard() {
           <button onClick={() => { setActiveTab("transfers"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "transfers" ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <Clock className="w-5 h-5" /> Pending Transfers
           </button>
-          
           <button onClick={() => { setActiveTab("accounts"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "accounts" ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <Landmark className="w-5 h-5" /> Approvals
           </button>
-
-          {/* NEW MANAGE ACCOUNTS TAB */}
           <button onClick={() => { setActiveTab("manage"); setFeedback({message:"", isError:false}); setManagedAccount(null); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "manage" ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <Settings className="w-5 h-5" /> Manage Accounts
           </button>
-
           <button onClick={() => { setActiveTab("staff"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "staff" ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <UserPlus className="w-5 h-5" /> Provision Teller
           </button>
@@ -488,60 +505,88 @@ export default function AdminDashboard() {
                        <input
                           type="text"
                           required
-                          placeholder="Enter 12-Digit Account Number..."
+                          placeholder="Search Email, Phone, or Account No..."
                           value={searchAccNum}
                           onChange={(e) => setSearchAccNum(e.target.value)}
                           className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500"
                         />
                     </div>
                     <button type="submit" disabled={isSearchLoading} className="bg-slate-800 text-white px-8 py-3 rounded-xl font-semibold hover:bg-slate-900 transition-colors">
-                      {isSearchLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Find Account"}
+                      {isSearchLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Find User"}
                     </button>
                  </form>
              ) : (
-                 <div className="max-w-lg space-y-6 animate-in slide-in-from-right-4">
+                 <div className="max-w-2xl space-y-6 animate-in slide-in-from-right-4">
                     <div className="flex justify-between items-center pb-4 border-b border-slate-100">
                         <button onClick={() => { setManagedAccount(null); setFeedback({message:"", isError:false}); }} className="text-sm font-medium text-slate-500 hover:text-slate-800 flex items-center gap-2">
                            <ArrowLeft className="w-4 h-4" /> Back to Search
                         </button>
                     </div>
 
-                    <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-2xl">
-                        <h3 className="text-lg font-bold text-slate-900">{managedAccount.ownerName}</h3>
-                        <p className="text-slate-600 mb-2">{managedAccount.email}</p>
-                        <span className="font-mono bg-white px-2 py-1 rounded shadow-sm border border-slate-200 text-sm tracking-widest text-slate-800">
-                            ACC: {managedAccount.accountNumber || searchAccNum}
-                        </span>
+                    <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl flex items-center gap-4">
+                      <div className="bg-indigo-600 p-4 rounded-full text-white">
+                        <Users className="w-8 h-8" />
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-bold text-slate-900">{managedAccount.ownerName}</h3>
+                        <p className="text-slate-600">{managedAccount.email} • {managedAccount.mobileNumber}</p>
+                      </div>
                     </div>
 
-                    <form onSubmit={handleUpdateManagedStatus} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">New Account Status</label>
-                            <select 
-                                value={manageForm.newStatus} 
-                                onChange={(e) => setManageForm({...manageForm, newStatus: e.target.value})}
-                                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 bg-white"
-                            >
-                                <option value="Active">Active</option>
-                                <option value="Suspended">Suspended (Freeze)</option>
-                                <option value="Rejected">Rejected</option>
-                                <option value="Closed">Closed</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">Audit Remarks (Optional)</label>
-                            <input 
-                                type="text" 
-                                value={manageForm.remarks} 
-                                onChange={(e) => setManageForm({...manageForm, remarks: e.target.value})}
-                                placeholder="Reason for status change..." 
-                                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500"
-                            />
-                        </div>
-                        <button type="submit" disabled={isUpdateLoading} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 transition-colors shadow-md mt-4">
-                            {isUpdateLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "Update Account Status"}
-                        </button>
-                    </form>
+                    {/* Interactive Account Selection Grid */}
+                    <h4 className="font-bold text-slate-700 mt-4 mb-2 text-sm uppercase tracking-wider">Select Account to Manage</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+                      {managedAccount.accounts.map(acc => (
+                         <div key={acc.accountNumber} className={`p-4 border rounded-xl flex justify-between items-center transition-all ${selectedAccForManage === acc.accountNumber ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-200 bg-white'}`}>
+                            <div>
+                               <p className="font-mono font-bold text-slate-800">{acc.accountNumber}</p>
+                               <p className="text-xs font-bold text-slate-500 mt-1 uppercase tracking-wider">
+                                  {acc.accountType} • <span className={acc.status === 'Active' ? 'text-emerald-600' : 'text-rose-600'}>{acc.status}</span>
+                               </p>
+                            </div>
+                            <div className="text-right">
+                               <p className="font-bold text-slate-900 text-lg">₹{acc.balance.toLocaleString('en-IN', {minimumFractionDigits: 2})}</p>
+                               {selectedAccForManage !== acc.accountNumber && (
+                                  <button onClick={() => setSelectedAccForManage(acc.accountNumber)} className="text-xs font-bold text-indigo-600 hover:text-indigo-800 mt-1">Select Profile</button>
+                               )}
+                               {selectedAccForManage === acc.accountNumber && (
+                                  <span className="text-xs font-bold text-indigo-600 mt-1 block">Selected ✓</span>
+                               )}
+                            </div>
+                         </div>
+                      ))}
+                    </div>
+
+                    {selectedAccForManage && (
+                        <form onSubmit={handleUpdateManagedStatus} className="space-y-4 bg-white p-6 border border-slate-200 rounded-2xl shadow-sm">
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">New Account Status</label>
+                                <select 
+                                    value={manageForm.newStatus} 
+                                    onChange={(e) => setManageForm({...manageForm, newStatus: e.target.value})}
+                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 bg-white"
+                                >
+                                    <option value="Active">Active</option>
+                                    <option value="Suspended">Suspended (Freeze)</option>
+                                    <option value="Rejected">Rejected</option>
+                                    <option value="Closed">Closed</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-1">Audit Remarks (Optional)</label>
+                                <input 
+                                    type="text" 
+                                    value={manageForm.remarks} 
+                                    onChange={(e) => setManageForm({...manageForm, remarks: e.target.value})}
+                                    placeholder="Reason for status change..." 
+                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500"
+                                />
+                            </div>
+                            <button type="submit" disabled={isUpdateLoading} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 transition-colors shadow-md mt-4">
+                                {isUpdateLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "Update Selected Account Status"}
+                            </button>
+                        </form>
+                    )}
                  </div>
              )}
           </section>

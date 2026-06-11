@@ -256,11 +256,11 @@ export default function BulkPayroll() {
             ) : batchStatus === "Failed" || batchStatus === "Error" ? (
               <div className="py-12 animate-in fade-in zoom-in duration-300">
                 <AlertCircle className="w-16 h-16 text-rose-500 mx-auto mb-6" />
-                <h2 className="text-2xl font-bold text-slate-900">Batch Processing Failed</h2>
-                <p className="text-slate-500 mt-2">Hangfire encountered errors while processing your file.</p>
+                <h2 className="text-2xl font-bold text-slate-900">Can not process this File</h2>
+                <p className="text-slate-500 mt-2">Encountered Invalid rows while processing your file.</p>
                 
                 <div className="mt-8 inline-block bg-rose-50 text-rose-700 px-6 py-4 rounded-xl border border-rose-100 text-left max-w-lg mx-auto">
-                  <span className="font-bold block mb-1">Server Error Message:</span>
+                  <span className="font-bold block mb-1">Error Message:</span>
                   <span className="font-mono text-sm">{batchErrorMsg || "Unknown error."}</span>
                 </div>
                 

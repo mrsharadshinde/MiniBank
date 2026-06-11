@@ -3,7 +3,7 @@ import { AuthProvider } from "./context/AuthContext";
 import Login from "./pages/Login";
 import StaffLogin from "./pages/StaffLogin";
 import Dashboard from "./pages/Dashboard";
-import StaffDashboard from "./pages/StaffDashboard"
+import StaffDashboard from "./pages/StaffDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import StaffRoute from "./components/StaffRoute";
 import TransferFunds from "./pages/TransferFunds";
@@ -22,7 +22,9 @@ function App() {
           {/* Customer Routes (Wrapped in standard Bouncer) */}
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Dashboard />} />
-             <Route path="/transfer" element={<TransferFunds />} />
+            <Route path="/transfer" element={<TransferFunds />} />
+            {/* Bulk processing  */}
+            <Route path="/bulk-payroll" element={<BulkPayroll />} />
           </Route>
 
           {/* Staff Routes (Wrapped in the STRICT Bouncer) */}
@@ -30,11 +32,6 @@ function App() {
             <Route path="/staff-dashboard" element={<StaffDashboard />} />
             <Route path="/admin-dashboard" element={<AdminDashboard />} />
           </Route>
-
-
-          {/* Bulk processing  */}
-          <Route path="/bulk-payroll" element={<BulkPayroll />} />
-
         </Routes>
       </AuthProvider>
     </BrowserRouter>

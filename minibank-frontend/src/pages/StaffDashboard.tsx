@@ -20,12 +20,21 @@ import TransactionHistory from "../components/TransactionHistory";
 
 type KycStep = 1 | 2 | 3;
 
-// Ensure your C# endpoint is updated to return 'id' (UserId) and 'accountNumber'!
-type Customer = {
-  id?: string | number;
-  ownerName?: string;
-  email?: string;
-  accountNumber?: string; 
+// --- UPGRADED INTERFACES TO MATCH C# ACCOUNTLOOKUPRESPONSE ---
+type BankAccount = {
+  accountNumber: string;
+  accountType: string;
+  status: string;
+  balance: number;
+};
+
+type CustomerLookupResponse = {
+  userId: number;
+  ownerName: string;
+  email: string;
+  mobileNumber: string;
+  matchedAccountNumber: string | null;
+  accounts: BankAccount[];
 };
 
 export default function StaffDashboard() {
@@ -33,7 +42,7 @@ export default function StaffDashboard() {
 
   const [activeTab, setActiveTab] = useState<"search" | "onboard">("search");
   const [searchIdentifier, setSearchIdentifier] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerLookupResponse | null>(null);
 
   // --- UPGRADED: ACTION STATE ---
   const [activeAction, setActiveAction] = useState<"deposit" | "withdraw" | "ledger" | "contact" | null>(null);
@@ -71,7 +80,17 @@ export default function StaffDashboard() {
 
     try {
       const response = await axiosClient.get(`/api/accounts/${searchIdentifier}`);
-      setSelectedCustomer(response.data);
+      const data: CustomerLookupResponse = response.data;
+      setSelectedCustomer(data);
+
+      // CRITICAL BUG FIX: If the Teller searched by Mobile Number, we need to swap the 
+      // searchIdentifier to the actual 12-digit Account Number so deposits/withdrawals don't fail!
+      if (data.matchedAccountNumber) {
+         setSearchIdentifier(data.matchedAccountNumber);
+      } else if (data.accounts && data.accounts.length > 0) {
+         setSearchIdentifier(data.accounts[0].accountNumber);
+      }
+
       setFeedback({ message: "Customer verified.", isError: false });
     } catch {
       setFeedback({ message: "User or Account not found.", isError: true });
@@ -103,7 +122,17 @@ export default function StaffDashboard() {
         message: `${activeAction === "deposit" ? "Deposit" : "Withdrawal"} of ₹${txAmount} successful. Ref: ${response.data.transactionId || 'Success'}`, 
         isError: false 
       });
+      
       setActiveBalance(response.data.newBalance); 
+      
+      // Update the local state array so the UI reflects the new balance instantly
+      if (selectedCustomer) {
+         const updatedAccounts = selectedCustomer.accounts.map(acc => 
+            acc.accountNumber === searchIdentifier ? { ...acc, balance: response.data.newBalance } : acc
+         );
+         setSelectedCustomer({ ...selectedCustomer, accounts: updatedAccounts });
+      }
+
       setActiveAction(null);
       setTxAmount("");
       setTxDescription("");
@@ -121,8 +150,8 @@ export default function StaffDashboard() {
   // ==========================================
   const handleUpdateContact = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedCustomer?.id) {
-      setFeedback({ message: "System Error: Missing User ID. Ensure C# returns 'Id' in search endpoint.", isError: true });
+    if (!selectedCustomer?.userId) {
+      setFeedback({ message: "System Error: Missing User ID.", isError: true });
       return;
     }
 
@@ -130,8 +159,16 @@ export default function StaffDashboard() {
     setFeedback({ message: "", isError: false });
 
     try {
-      const response = await axiosClient.put(`/api/accounts/users/${selectedCustomer.id}/contact`, contactForm);
+      const response = await axiosClient.put(`/api/accounts/users/${selectedCustomer.userId}/contact`, contactForm);
       setFeedback({ message: response.data.message || "Contact details updated successfully.", isError: false });
+      
+      // Update local state to reflect new contact info instantly
+      setSelectedCustomer(prev => prev ? {
+         ...prev, 
+         email: contactForm.newEmail || prev.email, 
+         mobileNumber: contactForm.newMobile || prev.mobileNumber 
+      } : null);
+
       setContactForm({ newEmail: "", newMobile: "" });
       setActiveAction(null);
     } catch (error: any) {
@@ -291,7 +328,7 @@ export default function StaffDashboard() {
                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                      <input
                         type="text"
-                        placeholder="Enter Account Number..."
+                        placeholder="Enter 12-Digit Account, Email, or Mobile..."
                         value={searchIdentifier}
                         onChange={(e) => setSearchIdentifier(e.target.value)}
                         className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500"
@@ -301,53 +338,75 @@ export default function StaffDashboard() {
                     {isLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : "Verify Account"}
                   </button>
                 </form>
-                <p className="text-xs text-slate-500 mt-2 ml-2">Note: To process transactions or view ledgers, search by the 12-digit Account Number.</p>
               </>
             ) : (
               <div className="space-y-6">
                 
                 {/* CRM Header & Controls */}
                 <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-4">
-                    <button onClick={() => { setSelectedCustomer(null); setActiveAction(null); setActiveBalance(null); }} className="text-slate-500 flex items-center gap-2 hover:text-slate-800 text-sm font-medium">
+                    <button onClick={() => { setSelectedCustomer(null); setActiveAction(null); setActiveBalance(null); setSearchIdentifier(""); }} className="text-slate-500 flex items-center gap-2 hover:text-slate-800 text-sm font-medium">
                         <ArrowLeft className="w-4 h-4" /> Close CRM File
                     </button>
                     {activeBalance !== null && (
                         <div className="bg-emerald-50 text-emerald-700 px-4 py-2 rounded-lg font-bold flex items-center gap-2">
-                            <IndianRupee className="w-4 h-4" /> Current Balance: ₹{activeBalance.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                            <IndianRupee className="w-4 h-4" /> Updated Balance: ₹{activeBalance.toLocaleString('en-IN', {minimumFractionDigits: 2})}
                         </div>
                     )}
                 </div>
 
-                {/* Customer Identity Card */}
-                <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl flex items-center gap-4">
-                  <div className="bg-emerald-600 p-4 rounded-full text-white">
-                    <UserCheck className="w-8 h-8" />
+                {/* --- UPGRADED: User Identity & Multi-Account Card --- */}
+                <div className="bg-slate-50 border border-slate-200 p-6 rounded-2xl">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="bg-emerald-600 p-4 rounded-full text-white">
+                      <UserCheck className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900">{selectedCustomer.ownerName}</h2>
+                      <p className="text-slate-500">{selectedCustomer.email} • {selectedCustomer.mobileNumber}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-slate-900">{selectedCustomer.ownerName || "Verified Account"}</h2>
-                    <p className="text-slate-500">{selectedCustomer.email || "No email on file"}</p>
-                    <p className="text-slate-800 font-mono tracking-widest mt-1 bg-white inline-block px-2 py-1 rounded shadow-sm border border-slate-200 text-sm">
-                      ACC: {selectedCustomer.accountNumber || searchIdentifier}
-                    </p>
+
+                  {/* List out all the accounts this user owns */}
+                  <h3 className="font-bold text-slate-700 mt-4 mb-2 text-sm uppercase tracking-wider">Associated Accounts</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                     {selectedCustomer.accounts.map(acc => (
+                        <div key={acc.accountNumber} className={`p-4 border rounded-xl flex justify-between items-center transition-all ${searchIdentifier === acc.accountNumber ? 'border-emerald-500 bg-emerald-50/50 shadow-sm' : 'border-slate-200 bg-white'}`}>
+                           <div>
+                              <p className="font-mono font-bold text-slate-800">{acc.accountNumber}</p>
+                              <p className="text-xs font-bold text-slate-500 mt-1 uppercase tracking-wider">
+                                 {acc.accountType} • <span className={acc.status === 'Active' ? 'text-emerald-600' : 'text-rose-600'}>{acc.status}</span>
+                              </p>
+                           </div>
+                           <div className="text-right">
+                              <p className="font-bold text-slate-900 text-lg">₹{acc.balance.toLocaleString('en-IN', {minimumFractionDigits: 2})}</p>
+                              {searchIdentifier !== acc.accountNumber && (
+                                 <button onClick={() => setSearchIdentifier(acc.accountNumber)} className="text-xs font-bold text-emerald-600 hover:text-emerald-800 mt-1">Select for Operation</button>
+                              )}
+                              {searchIdentifier === acc.accountNumber && (
+                                 <span className="text-xs font-bold text-emerald-600 mt-1 block">Active Selection ✓</span>
+                              )}
+                           </div>
+                        </div>
+                     ))}
                   </div>
                 </div>
 
                 {/* THE 4-BUTTON ACTION GRID */}
                 {!activeAction ? (
                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
-                         <button onClick={() => setActiveAction("deposit")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-emerald-500 hover:bg-emerald-50 transition-colors group">
+                         <button onClick={() => setActiveAction("deposit")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-emerald-500 hover:bg-emerald-50 transition-colors group shadow-sm">
                              <ArrowDownToLine className="w-8 h-8 text-emerald-500" />
                              <span className="font-bold text-slate-700 group-hover:text-emerald-700">Cash Deposit</span>
                          </button>
-                         <button onClick={() => setActiveAction("withdraw")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-rose-500 hover:bg-rose-50 transition-colors group">
+                         <button onClick={() => setActiveAction("withdraw")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-rose-500 hover:bg-rose-50 transition-colors group shadow-sm">
                              <ArrowUpFromLine className="w-8 h-8 text-rose-500" />
                              <span className="font-bold text-slate-700 group-hover:text-rose-700">Cash Withdraw</span>
                          </button>
-                         <button onClick={() => setActiveAction("ledger")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-indigo-500 hover:bg-indigo-50 transition-colors group">
+                         <button onClick={() => setActiveAction("ledger")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-indigo-500 hover:bg-indigo-50 transition-colors group shadow-sm">
                              <History className="w-8 h-8 text-indigo-500" />
                              <span className="font-bold text-slate-700 group-hover:text-indigo-700">View Ledger</span>
                          </button>
-                         <button onClick={() => setActiveAction("contact")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-amber-500 hover:bg-amber-50 transition-colors group">
+                         <button onClick={() => setActiveAction("contact")} className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-slate-100 hover:border-amber-500 hover:bg-amber-50 transition-colors group shadow-sm">
                              <UserCog className="w-8 h-8 text-amber-500" />
                              <span className="font-bold text-slate-700 group-hover:text-amber-700">Update Contact</span>
                          </button>
@@ -368,8 +427,12 @@ export default function StaffDashboard() {
 
                         {/* ACTION 1 & 2: DEPOSIT OR WITHDRAW */}
                         {(activeAction === "deposit" || activeAction === "withdraw") && (
-                          <div className="border border-slate-200 rounded-2xl p-6 bg-white">
+                          <div className="border border-slate-200 rounded-2xl p-6 bg-white shadow-sm">
                             <form onSubmit={handleTransaction} className="space-y-4">
+                                <div className="bg-slate-50 p-4 rounded-xl mb-4 text-sm font-medium text-slate-700 flex justify-between">
+                                  <span>Operating on Account:</span>
+                                  <span className="font-mono font-bold tracking-wider">{searchIdentifier}</span>
+                                </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Amount (₹)</label>
                                     <div className="relative">
@@ -381,7 +444,7 @@ export default function StaffDashboard() {
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Narration (Optional)</label>
                                     <input type="text" value={txDescription} onChange={(e) => setTxDescription(e.target.value)} placeholder="Enter details..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500" />
                                 </div>
-                                <button type="submit" disabled={isLoading} className={`w-full py-4 rounded-xl font-bold text-white text-lg mt-4 transition-colors ${activeAction === 'deposit' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                                <button type="submit" disabled={isLoading} className={`w-full py-4 rounded-xl font-bold text-white text-lg mt-4 transition-colors shadow-md ${activeAction === 'deposit' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
                                     {isLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : `Confirm ${activeAction === 'deposit' ? 'Deposit' : 'Withdrawal'}`}
                                 </button>
                             </form>
@@ -390,7 +453,7 @@ export default function StaffDashboard() {
 
                         {/* ACTION 3: UPDATE CONTACT */}
                         {activeAction === "contact" && (
-                          <div className="border border-slate-200 rounded-2xl p-6 bg-white">
+                          <div className="border border-slate-200 rounded-2xl p-6 bg-white shadow-sm">
                             <form onSubmit={handleUpdateContact} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">New Email Address</label>
@@ -400,7 +463,7 @@ export default function StaffDashboard() {
                                     <label className="block text-sm font-medium text-slate-700 mb-1">New Mobile Number</label>
                                     <input type="tel" value={contactForm.newMobile} onChange={(e) => setContactForm({...contactForm, newMobile: e.target.value})} placeholder="Enter new mobile..." className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-amber-500" />
                                 </div>
-                                <button type="submit" disabled={isLoading || (!contactForm.newEmail && !contactForm.newMobile)} className="w-full py-4 rounded-xl font-bold text-white text-lg mt-4 bg-amber-600 hover:bg-amber-700 transition-colors disabled:opacity-50">
+                                <button type="submit" disabled={isLoading || (!contactForm.newEmail && !contactForm.newMobile)} className="w-full py-4 rounded-xl font-bold text-white text-lg mt-4 bg-amber-600 hover:bg-amber-700 transition-colors disabled:opacity-50 shadow-md">
                                     {isLoading ? <Loader2 className="w-6 h-6 animate-spin mx-auto" /> : "Save New Contact Details"}
                                 </button>
                             </form>
@@ -409,7 +472,7 @@ export default function StaffDashboard() {
 
                         {/* ACTION 4: VIEW LEDGER */}
                         {activeAction === "ledger" && (
-                          <TransactionHistory accountNumber={selectedCustomer.accountNumber || searchIdentifier} />
+                          <TransactionHistory accountNumber={searchIdentifier} />
                         )}
 
                     </div>
