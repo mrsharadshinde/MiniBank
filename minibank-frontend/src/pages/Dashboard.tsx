@@ -128,7 +128,7 @@ export default function Dashboard() {
               {accounts.map((acc) => (
                 <div
                   key={acc.accountNumber}
-                  className="bg-gradient-to-br from-brand-600 to-brand-900 rounded-2xl p-8 text-white shadow-lg flex flex-col justify-between"
+                  className="bg-linear-to-br from-brand-600 to-brand-900 rounded-2xl p-8 text-white shadow-lg flex flex-col justify-between"
                 >
                   {/* Top Half: Balances */}
                   <div>
