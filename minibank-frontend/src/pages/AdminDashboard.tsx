@@ -3,7 +3,8 @@ import { useAuth } from "../context/AuthContext";
 import axiosClient from "../api/axiosClient";
 import {
   ShieldCheck, LogOut, Loader2, CheckCircle, XCircle, Clock,
-  ArrowRight, IndianRupee, AlertCircle, Users, Landmark, UserPlus, Archive, Settings, Search, ArrowLeft, Activity
+  ArrowRight, IndianRupee, AlertCircle, Users, Landmark, UserPlus, Archive, Settings, Search, ArrowLeft, Activity,
+  FileWarning
 } from "lucide-react";
 
 // --- INTERFACES ---
@@ -53,17 +54,34 @@ type CustomerLookupResponse = {
   accounts: BankAccountInfo[];
 };
 
+interface RejectedResponse {
+  id: number;
+  makerUserId: number;
+  makerName: string;
+  checkerUserId: number | null;
+  fromAccountId: number;
+  toAccountId: number;
+  amount: number;
+  status: string;
+  remark: string;
+  createdAt: string;
+  reviewedAt: string | null;
+}
 export default function AdminDashboard() {
   const { logout, role } = useAuth();
   
   // --- UI STATE ---
-  const [activeTab, setActiveTab] = useState<"transfers" | "accounts" | "manage" | "staff" | "audit">("transfers");
+  const [activeTab, setActiveTab] = useState<"transfers" | "accounts" | "manage" | "staff" | "audit" | "Rejected">("transfers");
   const [feedback, setFeedback] = useState({ message: "", isError: false });
   const [actionLoadingId, setActionLoadingId] = useState<string | number | null>(null);
 
   // --- TRANSFERS STATE ---
   const [pendingTransfers, setPendingTransfers] = useState<PendingTransfer[]>([]);
   const [isTransfersLoading, setIsTransfersLoading] = useState(true);
+
+  // --- Rejected Log---
+  const [rejected, setRejected] = useState<RejectedResponse[]>([]);
+  const [isRejectedLoading, setIsRejectedLoading] = useState(true);
 
   // --- ACCOUNTS STATE (Pending Activations) ---
   const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
@@ -101,6 +119,7 @@ export default function AdminDashboard() {
       fetchAvailableActions();
       fetchAuditLogs(1);
     }
+    if(activeTab == "Rejected") fetchRejected();
   }, [activeTab]);
 
   // ==========================================
@@ -366,6 +385,22 @@ export default function AdminDashboard() {
     }
   };
 
+  // ---- Get the Rejected trasaction----
+  const fetchRejected = async () => 
+  {
+    setIsRejectedLoading(true)
+    try {
+      const response = await axiosClient.get("/api/approvals/rejected");
+        setRejected(response.data);
+    }
+    catch(error){
+        setFeedback({message: "Failed to load Rejected Transfers.", isError: true})
+      }
+    finally{
+      setIsRejectedLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -400,6 +435,11 @@ export default function AdminDashboard() {
           <button onClick={() => { setActiveTab("staff"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "staff" ? "bg-indigo-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <UserPlus className="w-5 h-5" /> Provision Teller
           </button>
+          
+          <button onClick={() => { setActiveTab("Rejected"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "Rejected" ? "bg-rose-600 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
+            <FileWarning className="w-5 h-5" /> Rejected Approvals
+          </button>
+
           <button onClick={() => { setActiveTab("audit"); setFeedback({message:"", isError:false}); }} className={`px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-colors ${activeTab === "audit" ? "bg-slate-800 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}>
             <Archive className="w-5 h-5" /> Audit Log
           </button>
@@ -813,12 +853,12 @@ export default function AdminDashboard() {
                           #{log.targetUserId}
                         </td>
                         <td className="px-6 py-4 max-w-xs">
-                          <div className="bg-rose-50 text-rose-700 px-2 py-1 rounded text-xs border border-rose-100 break-words">
+                          <div className="bg-rose-50 text-rose-700 px-2 py-1 rounded text-xs border border-rose-100 wrap-break-word">
                             {log.oldValue || '—'}
                           </div>
                         </td>
                         <td className="px-6 py-4 max-w-xs">
-                          <div className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-xs border border-emerald-100 break-words">
+                          <div className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-xs border border-emerald-100 wrap-break-word">
                             {log.newValue || '—'}
                           </div>
                         </td>
@@ -828,6 +868,125 @@ export default function AdminDashboard() {
                 </table>
               </div>
             )}
+
+            {/* Pagination */}
+            {auditTotalPages > 1 && (
+              <div className="p-6 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-sm text-slate-600">
+                  Page <strong>{auditPage}</strong> of <strong>{auditTotalPages}</strong>
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => fetchAuditLogs(auditPage - 1)}
+                    disabled={auditPage === 1 || isAuditLoading}
+                    className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-medium hover:bg-slate-200 disabled:opacity-50 transition-colors"
+                  >
+                    ← Previous
+                  </button>
+                  <button
+                    onClick={() => fetchAuditLogs(auditPage + 1)}
+                    disabled={auditPage === auditTotalPages || isAuditLoading}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* --------------Rejected--------------------------------- */}
+        {activeTab === "Rejected" && (
+          <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
+
+            {/* rejected Logs Table */}
+            {activeTab === "Rejected" && (
+          <section className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden animate-in fade-in">
+            <div className="p-6 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <FileWarning className="w-5 h-5 text-rose-600" />
+                <h2 className="text-lg font-bold text-slate-900">Rejected Transfers Archive</h2>
+              </div>
+              <span className="ml-auto bg-slate-200 text-slate-700 py-1 px-3 rounded-full text-xs font-bold">
+                {rejected.length} Records
+              </span>
+            </div>
+
+            {isRejectedLoading ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+              </div>
+            ) : rejected.length === 0 ? (
+              <p className="text-center py-16 text-slate-500">No Rejected Transactions found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">ID</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Maker</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Checker ID</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">From Acc</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">To Acc</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Amount</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Status</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Remark</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Created At</th>
+                      <th className="px-6 py-3 text-left font-bold text-slate-700">Reviewed At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {rejected.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 font-mono text-xs text-slate-600">#{log.id}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-1">
+                            <span className="font-mono text-xs text-slate-400">ID: {log.makerUserId}</span>
+                            <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded text-xs font-bold w-max">
+                              {log.makerName}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 font-mono text-xs text-slate-600">
+                          {log.checkerUserId ? `#${log.checkerUserId}` : 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 font-mono text-xs text-slate-600">#{log.fromAccountId}</td>
+                        <td className="px-6 py-4 font-mono text-xs text-slate-600">#{log.toAccountId}</td>
+                        <td className="px-6 py-4">
+                          <span className="bg-rose-100 text-rose-700 px-3 py-1 rounded-full text-xs font-bold flex items-center w-max">
+                            <IndianRupee className="w-3 h-3 mr-1" />
+                            {log.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="bg-rose-50 text-rose-700 px-2 py-1 rounded text-xs font-bold border border-rose-100 text-center w-max">
+                            {log.status || '—'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600 text-xs">
+                          {log.remark}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600 text-xs">
+                          {new Date(log.createdAt).toLocaleString('en-IN', {
+                            year: 'numeric', month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600 text-xs">
+                          {log.reviewedAt ? new Date(log.reviewedAt).toLocaleString('en-IN', {
+                            year: 'numeric', month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          }) : 'N/A'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
 
             {/* Pagination */}
             {auditTotalPages > 1 && (

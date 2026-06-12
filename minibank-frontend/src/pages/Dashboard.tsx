@@ -6,13 +6,15 @@ import {
   Loader2,
   History,
   Eye,
-  EyeOff
+  EyeOff,
+  Send,
+  FileSpreadsheet,
+  History as HistoryIcon,
 } from "lucide-react";
 import axiosClient from "../api/axiosClient";
 import { useAuth } from "../context/AuthContext";
 import TransactionHistory from "../components/TransactionHistory";
 import { Link } from "react-router-dom";
-import { Send, FileSpreadsheet } from "lucide-react";
 // Define what our C# data will look like
 interface AccountData {
   accountNumber: string;
@@ -95,7 +97,12 @@ export default function Dashboard() {
             >
               <FileSpreadsheet className="w-4 h-4" /> Bulk Payroll
             </Link>
-
+            <Link
+              to="/bulk-payroll-history"
+              className="flex items-center gap-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              <HistoryIcon className="w-4 h-4" /> Batch History
+            </Link>
             <button
               onClick={logout}
               className="flex items-center gap-2 text-slate-500 hover:text-rose-500 font-medium transition-colors"

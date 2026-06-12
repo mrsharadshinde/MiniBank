@@ -9,6 +9,7 @@ import StaffRoute from "./components/StaffRoute";
 import TransferFunds from "./pages/TransferFunds";
 import BulkPayroll from "./pages/BulkPayroll";
 import AdminDashboard from "./pages/AdminDashboard";
+import BulkPayrollHistory from "./pages/BulkPayrollHistory"; // <-- UNCOMMENTED
 
 function App() {
   return (
@@ -23,8 +24,10 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/transfer" element={<TransferFunds />} />
-            {/* Bulk processing  */}
             <Route path="/bulk-payroll" element={<BulkPayroll />} />
+            
+            {/* <-- UNCOMMENTED AND FIXED ROUTE NAME --> */}
+            <Route path="/bulk-payroll-history" element={<BulkPayrollHistory />} />
           </Route>
 
           {/* Staff Routes (Wrapped in the STRICT Bouncer) */}
