@@ -1,0 +1,5 @@
+Target Account Number,Amount,Description,Error Reason
+100180899587,70000,Correction for 10-Feb-2026, New record contains an old date 2/10/2026 12:00:00 AM from Q1 2026.
+100146609184,50000,Missing date string in this row, Malformed Date or Description without date.
+100114767465,200,Monthly Salary for 10-Jan-2026, New record contains an old date 1/10/2026 12:00:00 AM from Q1 2026.
+100180899587,500.00,Correction for 10-Feb-2026,Missing previous record due to mismatch in AccountNo/Amount/Date

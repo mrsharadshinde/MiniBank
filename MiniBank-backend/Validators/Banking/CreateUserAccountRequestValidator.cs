@@ -1,0 +1,56 @@
+using FluentValidation;
+using MiniBankWallet.DTOs.Accounts;
+using MiniBankWallet.Models.Banking;
+
+namespace MiniBankWallet.Validators.Banking;
+
+public class CreateAccountRequestValidator: AbstractValidator<CreateAccountRequest>
+{
+    public CreateAccountRequestValidator()
+    {
+        // Tells FluentValidation: "If the first rules fails, stop checking. Don't rune 
+        ClassLevelCascadeMode = CascadeMode.Stop;
+
+        //1. Name Rules 
+        RuleFor(x => x.OwnerName)
+            .NotEmpty().WithMessage("Owner Name is required.")
+            .MinimumLength(2).WithMessage("Must be atlest 2 charectors long")
+            .MaximumLength(50).WithMessage("Name cannot exceed 50 charectors") ;
+        
+        RuleFor(x =>x.AadharNumber )
+            .NotEmpty().WithMessage("Aadhar Number is requered.")
+            .MinimumLength(12).WithMessage("Addhar number cannot be less than 12 charectors")
+            .MaximumLength(12).WithMessage("Aadhar Number cannot exceed 12 charectors") ;
+        
+        // 2. Mobile number rules 
+       RuleFor(x => x.MobileNumber)
+            .NotEmpty().WithMessage("Mobile number is requered.")
+            .Must(number =>
+            {
+                if (string.IsNullOrWhiteSpace(number)) return false;
+                var cleanNumber = number.Trim();
+                return System.Text.RegularExpressions.Regex.IsMatch(cleanNumber,@"^\+?\d{10,15}$");
+            })
+            .WithMessage("Invalid mobile number format. Please include country code.") ; 
+
+        // 3. Email Rules 
+        RuleFor(x => x.Email)
+            .Matches(@"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+            .WithMessage("Please enter a valid email address (e.g., name@example.com).")
+            .When(x => !string.IsNullOrWhiteSpace(x.Email)); 
+
+        // 4. Accout type rules 
+        RuleFor(x => x.AccountType)
+            .NotEmpty().WithMessage("Account type is requered.")
+            .IsEnumName(typeof(AccountType), caseSensitive: false)
+            .WithMessage($"Account type must be one of: {string.Join(", ", Enum.GetNames(typeof(AccountType)))}");
+        // 4. Account type rules 
+        RuleFor(x => x.AccountType)
+            .NotEmpty().WithMessage("Account type is required.")
+            .IsEnumName(typeof(AccountType), caseSensitive: false)
+            .WithMessage($"Account type must be one of: {string.Join(", ", Enum.GetNames(typeof(AccountType)))}")
+            // ADD THIS NEW RULE: Explicitly ban SystemVault creation!
+            .Must(type => !string.Equals(type, "SystemVault", StringComparison.OrdinalIgnoreCase))
+            .WithMessage("SystemVault accounts are internal and cannot be created manually.");
+    }
+}

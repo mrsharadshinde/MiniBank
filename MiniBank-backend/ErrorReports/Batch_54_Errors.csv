@@ -1,0 +1,12 @@
+Target Account Number,Amount,Description,Error Reason
+100180899587,70000,Monthly Salary for 10-Apr-2026, New record contains an old date 4/10/2026 12:00:00 AM from Q2 2026.
+100146609184,50000,Missing date string in this row, Malformed Date or Description without date.
+100114767465,200,Monthly Salary for 10-Jan-2026, New record contains an old date 1/10/2026 12:00:00 AM from Q1 2026.
+100122335511,300,Salary for 20-Jul-2026, New record contains an old date 7/20/2026 12:00:00 AM from Q3 2026.
+100148257512,100,Salary for 15-Jul-2026, New record contains an old date 7/15/2026 12:00:00 AM from Q3 2026.
+100181802627,6000,Salary for 15-Aug-2026, New record contains an old date 8/15/2026 12:00:00 AM from Q3 2026.
+100198076943,3000,Salary for 05-May-2026, New record contains an old date 5/5/2026 12:00:00 AM from Q2 2026.
+100163546633,90000,Salary for 05-Feb-2026, New record contains an old date 2/5/2026 12:00:00 AM from Q1 2026.
+100180899587,500.00,Correction for 10-Feb-2026,Missing previous record due to mismatch in AccountNo/Amount/Date
+100129741520,72000.00,Monthly Salary for 15-May-2026,Missing previous record due to mismatch in AccountNo/Amount/Date
+100146609184,50000.00,Monthly Salary for 25-Jun-2026,Missing previous record due to mismatch in AccountNo/Amount/Date
