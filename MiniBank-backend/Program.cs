@@ -122,6 +122,21 @@ public partial class Program
                     ValidAudience = builder.Configuration["Jwt:Audience"],
                     IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
                 };
+
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken =  context.Request.Cookies["AccessToken"];
+
+                        // if the cookie exists, Hand it ot the JWT Validator 
+                        if (!string.IsNullOrWhiteSpace(accessToken))
+                        {
+                            context.Token = accessToken;
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
             });
 
         // Required to make the [Authorize] or .RequireAuthorization() attributes work
@@ -183,7 +198,9 @@ public partial class Program
             // The cookie backend will set (must be HttpOnly)
             options.Cookie.Name = "XSRF-TOKEN";
             options.Cookie.HttpOnly = false;  // forntend neads to reads this 
-            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+            options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+                    ? CookieSecurePolicy.SameAsRequest
+                    : CookieSecurePolicy.Always;
             options.Cookie.SameSite = SameSiteMode.Strict;
         });
         // #################################################################

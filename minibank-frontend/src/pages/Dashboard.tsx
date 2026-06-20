@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+// Dashboard.tsx
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   LogOut,
   LayoutDashboard,
@@ -15,7 +17,8 @@ import axiosClient from "../api/axiosClient";
 import { useAuth } from "../context/AuthContext";
 import TransactionHistory from "../components/TransactionHistory";
 import { Link } from "react-router-dom";
-// Define what our C# data will look like
+
+// 1. THE TYPESCRIPT DEFINITION (Tells TS exactly what the C# backend returns)
 interface AccountData {
   accountNumber: string;
   balance: number;
@@ -26,15 +29,12 @@ interface AccountData {
 export default function Dashboard() {
   const { logout } = useAuth();
 
-  // 1. Component State
-  const [accounts, setAccount] = useState<AccountData[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  // 2. STRICTLY TYPED UI STATE
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
-  const [visibleBalances, setVisibleBalances] = useState<
-    Record<string, boolean>
-  >({});
+  // Tell TS this is an object where the Keys are strings, and Values are booleans
+  const [visibleBalances, setVisibleBalances] = useState<Record<string, boolean>>({});
 
+  // Fix: Add ': string' to the parameter
   const toggleBalance = (accountNumber: string) => {
     setVisibleBalances((prev) => ({
       ...prev,
@@ -42,34 +42,26 @@ export default function Dashboard() {
     }));
   };
 
-  // 2. The useEffect Hook (Runs when the page loads)
-  useEffect(() => {
-    fetchAccountData();
-  }, []);
-
-  const fetchAccountData = async () => {
-    try {
-      const response = await axiosClient.get("/api/accounts/me");
-      if (Array.isArray(response.data) && response.data.length > 0) {
-        setAccount(response.data);
-      } else {
-        setError("No active accounts found.");
+  // 3. THE REACT QUERY ENGINE (Now with <AccountData[]> generics!)
+  const { data: accounts = [], isLoading, error } = useQuery<AccountData[]>({
+    queryKey: ['my-accounts'],
+    queryFn: async () => {
+      try {
+        const response = await axiosClient.get("/api/accounts/me");
+        return response.data;
+      } catch (err: any) { // Fix: Tell TS 'err' is 'any' so we can check err.response
+        if (err.response?.status === 401) {
+          logout(); 
+        }
+        throw new Error("Failed to load account data. Please try again later.");
       }
-    } catch (err: any) {
-      if (err.response?.status === 401) {
-        logout(); // <-- Uses the global logout!
-      } else {
-        setError("Failed to load account data. Please try again later.");
-      }
-    } finally {
-      setIsLoading(false);
     }
-  };
+  });
 
-  // 4. The UI
   return (
     <div className="min-h-screen p-8">
       <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
+        
         {/* Header Section */}
         <div className="flex justify-between items-center border-b border-slate-100 pb-6 mb-6">
           <div className="flex items-center gap-3">
@@ -78,35 +70,21 @@ export default function Dashboard() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900">My Accounts</h1>
-              <p className="text-slate-500 text-sm">
-                Welcome to your secure dashboard.
-              </p>
+              <p className="text-slate-500 text-sm">Welcome to your secure dashboard.</p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            <Link
-              to="/transfer"
-              className="flex items-center gap-2 bg-brand-50 text-brand-700 hover:bg-brand-100 px-4 py-2 rounded-lg font-medium transition-colors"
-            >
+            <Link to="/transfer" className="flex items-center gap-2 bg-brand-50 text-brand-700 hover:bg-brand-100 px-4 py-2 rounded-lg font-medium transition-colors">
               <Send className="w-4 h-4" /> Transfer Money
             </Link>
-            <Link
-              to="/bulk-payroll"
-              className="flex items-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-lg font-medium transition-colors"
-            >
+            <Link to="/bulk-payroll" className="flex items-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2 rounded-lg font-medium transition-colors">
               <FileSpreadsheet className="w-4 h-4" /> Bulk Payroll
             </Link>
-            <Link
-              to="/bulk-payroll-history"
-              className="flex items-center gap-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-4 py-2 rounded-lg font-medium transition-colors"
-            >
+            <Link to="/bulk-payroll-history" className="flex items-center gap-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 px-4 py-2 rounded-lg font-medium transition-colors">
               <HistoryIcon className="w-4 h-4" /> Batch History
             </Link>
-            <button
-              onClick={logout}
-              className="flex items-center gap-2 text-slate-500 hover:text-rose-500 font-medium transition-colors"
-            >
+            <button onClick={logout} className="flex items-center gap-2 text-slate-500 hover:text-rose-500 font-medium transition-colors">
               <LogOut className="w-5 h-5" /> Sign Out
             </button>
           </div>
@@ -119,28 +97,21 @@ export default function Dashboard() {
           </div>
         ) : error ? (
           <div className="bg-rose-50 text-rose-600 p-4 rounded-xl text-center">
-            {error}
+            {error.message}
           </div>
+        ) : accounts.length === 0 ? (
+           <div className="text-center py-8 text-slate-500">No active accounts found.</div>
         ) : (
-          /* THE FIX: We added this empty <> fragment wrapper here */
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {accounts.map((acc) => (
-                <div
-                  key={acc.accountNumber}
-                  className="bg-linear-to-br from-brand-600 to-brand-900 rounded-2xl p-8 text-white shadow-lg flex flex-col justify-between"
-                >
-                  {/* Top Half: Balances */}
+                <div key={acc.accountNumber} className="bg-linear-to-br from-brand-600 to-brand-900 rounded-2xl p-8 text-white shadow-lg flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between text-brand-100 mb-2">
                       <div className="flex items-center gap-2">
                         <IndianRupee className="w-5 h-5" />
                         <span className="font-medium uppercase tracking-wider text-sm">
-                          {acc.accountType === 1
-                            ? "Checking"
-                            : acc.accountType === 2
-                              ? "Savings"
-                              : "Account"}
+                          {acc.accountType === 1 ? "Checking" : acc.accountType === 2 ? "Savings" : "Account"}
                         </span>
                       </div>
                     </div>
@@ -153,28 +124,15 @@ export default function Dashboard() {
                       <button
                         onClick={() => toggleBalance(acc.accountNumber)}
                         className="text-brand-300 hover:text-white transition-colors"
-                        title={
-                          visibleBalances[acc.accountNumber]
-                            ? "Hide Balance"
-                            : "Show Balance"
-                        }
                       >
-                        {visibleBalances[acc.accountNumber] ? (
-                          <EyeOff className="w-6 h-6" />
-                        ) : (
-                          <Eye className="w-6 h-6" />
-                        )}
+                        {visibleBalances[acc.accountNumber] ? <EyeOff className="w-6 h-6" /> : <Eye className="w-6 h-6" />}
                       </button>
                     </div>
 
                     <div className="flex justify-between items-end mb-6">
                       <div>
-                        <p className="text-brand-200 text-sm mb-1">
-                          Account Number
-                        </p>
-                        <p className="font-mono text-lg tracking-widest">
-                          {acc.accountNumber}
-                        </p>
+                        <p className="text-brand-200 text-sm mb-1">Account Number</p>
+                        <p className="font-mono text-lg tracking-widest">{acc.accountNumber}</p>
                       </div>
                       <div className="bg-brand-500/30 px-3 py-1 rounded-full text-sm backdrop-blur-sm border border-brand-400/30">
                         {acc.status}
@@ -182,33 +140,20 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* Bottom Half: The Action Button */}
                   <div className="pt-4 border-t border-brand-500/30">
                     <button
-                      // If they click it again, it hides it. Otherwise, it sets this account as active.
-                      onClick={() =>
-                        setActiveAccountId(
-                          activeAccountId === acc.accountNumber
-                            ? null
-                            : acc.accountNumber,
-                        )
-                      }
+                      onClick={() => setActiveAccountId(activeAccountId === acc.accountNumber ? null : acc.accountNumber)}
                       className="w-full py-3 rounded-xl bg-brand-800 hover:bg-brand-700 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
                     >
                       <History className="w-4 h-4" />
-                      {activeAccountId === acc.accountNumber
-                        ? "Hide History"
-                        : "View History"}
+                      {activeAccountId === acc.accountNumber ? "Hide History" : "View History"}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* CONDITIONAL RENDERING: Only show the table if an account is selected! */}
-            {activeAccountId && (
-              <TransactionHistory accountNumber={activeAccountId} />
-            )}
+            {activeAccountId && <TransactionHistory accountNumber={activeAccountId} />}
           </>
         )}
       </div>

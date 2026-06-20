@@ -6,8 +6,6 @@ using MiniBankWallet.Services;
 using MiniBankWallet.Helpers;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
 
 using FluentValidation;
 using MiniBankWallet.Models.Banking;
@@ -166,6 +164,7 @@ public static class AccountEndpoints
             if (!int.TryParse(loggedInUserIdStr, out int userId)) return Results.Unauthorized();
 
             var myAccounts = await db.BankAccounts
+                .AsNoTracking()
                 .Where(a => a.UserId == userId)
                 .Select(a => new
                 {
@@ -285,7 +284,10 @@ public static class AccountEndpoints
 
                 if (!isStaff && loggedInUserId != account.UserId) return Results.Forbid();
                 //3.  Build the base query ( Dererred Excution )
-                var baseQuery = db.LedgerEntries.Where(l => l.AccountId == account.Id).AsQueryable();
+                var baseQuery = db.LedgerEntries
+                                    .AsNoTracking()
+                                    .Where(l => l.AccountId == account.Id)
+                                    .AsQueryable();
 
                 if (startDate.HasValue)
                     baseQuery = baseQuery.Where(l => l.CreatedAt >= startDate.Value);

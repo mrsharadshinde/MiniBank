@@ -9,7 +9,7 @@ export default function Login() {
 
   // 1. Expanded React State
   const [step, setStep] = useState<1 | 2>(1); 
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [loginId, setloginId] = useState('');
   const [otp, setOtp] = useState('');
   
   const [isLoading, setIsLoading] = useState(false);
@@ -22,7 +22,7 @@ export default function Login() {
     setFeedbackMsg('');
 
     try {
-      await axiosClient.post('/api/auth/request-otp', { loginId: phoneNumber });
+      await axiosClient.post('/api/auth/request-otp', { loginId: loginId });
       setStep(2); 
       setFeedbackMsg('Secure code sent to your phone.');
     } catch (error) {
@@ -40,14 +40,17 @@ export default function Login() {
 
     try {
       const response = await axiosClient.post('/api/auth/verify-otp', { 
-        loginId: phoneNumber, 
+        loginId: loginId, 
         otp: otp 
       });
 
+      // Pass the returned role payload directly down to your dynamic security gateKeeper 
+      // ex . response {role: "Cutomer", status: "Success"}
+      const userRole = response.data.role || 'Customer '
       // The global context now handles saving the keys AND the navigation!
-      login(response.data.token, response.data.refreshToken);
+      login(userRole);
       
-    } catch (error) {
+    } catch (error: any) {
       setFeedbackMsg('Invalid code. Please try again.');
     } finally {
       setIsLoading(false);
@@ -71,7 +74,7 @@ export default function Login() {
         <p className="text-slate-500 text-center mb-8">
           {step === 1 
             ? 'Enter your login ID to receive a secure code.' 
-            : `We sent a code to ${phoneNumber}.`}
+            : `We sent a code to ${loginId}.`}
         </p>
         
         {/* CONDITIONAL RENDERING: Show Form 1 OR Form 2 */}
@@ -82,16 +85,14 @@ export default function Login() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Login ID</label>
               <input 
                 type="tel" 
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
+                value={loginId}
+                onChange={(e) => setloginId(e.target.value)}
                 placeholder="Acc No / Addhar No / Mobile / Email"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500"
                 required
               />
             </div>
-
             {feedbackMsg && <p className="text-sm text-center text-rose-500">{feedbackMsg}</p>}
-
             <button type="submit" disabled={isLoading} className="w-full bg-brand-600 text-white font-semibold py-3 rounded-xl hover:bg-brand-700 flex items-center justify-center gap-2 disabled:bg-brand-400">
               {isLoading ? <Loader2 className="animate-spin w-5 h-5" /> : <>Send Secure Code <ArrowRight className="w-5 h-5" /></>}
             </button>

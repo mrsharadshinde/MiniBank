@@ -221,14 +221,14 @@ public static class TransferEndpoints
         })
         .DisableAntiforgery()
         .RequireAuthorization();
-        // --------------------------------------------------------
+        // ##################################################################
         //  BATCH HISTORY -----------------------------------------
         // 1. GET BATCH HISTORY
         group.MapGet("/bulk-upload/batches", async (AppDbContext db, ClaimsPrincipal user) =>
         {
             var (loggedInUserId, isStaff) = SecurityContext.GetSecurityContext(user);
 
-            var query = db.bulkUploadBatches.AsQueryable();
+            var query = db.bulkUploadBatches.AsNoTracking().AsQueryable();
 
             // If not admin/staff, only show their own uploads
             if (!isStaff)
@@ -253,6 +253,7 @@ public static class TransferEndpoints
             return Results.Ok(batches);
         }).RequireAuthorization();
 
+        // ###################################################################
         // 2. DOWNLOAD ERROR REPORT
         group.MapGet("/bulk-upload/batches/{id}/report", async (int id, AppDbContext db, ClaimsPrincipal user) =>
         {
@@ -288,7 +289,7 @@ public static class TransferEndpoints
             });
         }).RequireAuthorization();
 
-        // ==========================================
+        // ==========================================########################
         // 4. DOWNLOAD ERROR CSV
         // ==========================================
         group.MapGet("/bulk-upload/{batchId}/download-errors", async (int batchId, AppDbContext db, ClaimsPrincipal user) =>

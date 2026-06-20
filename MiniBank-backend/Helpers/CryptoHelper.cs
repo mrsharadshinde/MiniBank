@@ -53,7 +53,6 @@ public static class SecurityHelper
         return new string(array);
     }
 
-
     /// for refresh token
     public static string GenerateRefreshToken()
     {

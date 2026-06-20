@@ -128,7 +128,7 @@ public static class AuthEndpoints
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true,
+                Secure = httpContext.Request.IsHttps,
                 SameSite = SameSiteMode.Strict,
                 Expires = DateTime.UtcNow.AddMinutes(15)
             };
@@ -139,7 +139,7 @@ public static class AuthEndpoints
             httpContext.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
             {
                 HttpOnly = false, // React MUST be able to read this
-                Secure = true,
+                Secure = httpContext.Request.IsHttps,
                 SameSite = SameSiteMode.Strict
             });
 
@@ -193,7 +193,7 @@ public static class AuthEndpoints
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
-                Secure = true,
+                Secure = httpContext.Request.IsHttps,
                 SameSite = SameSiteMode.Strict,
                 Expires = DateTime.UtcNow.AddMinutes(15)
             };
@@ -204,7 +204,7 @@ public static class AuthEndpoints
             httpContext.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
             {
                 HttpOnly = false, // React MUST be able to read this
-                Secure = true,
+                Secure = httpContext.Request.IsHttps,
                 SameSite = SameSiteMode.Strict
             });
 
