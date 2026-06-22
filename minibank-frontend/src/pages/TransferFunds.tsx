@@ -1,97 +1,88 @@
+// src/pages/TransferFunds.tsx
 import { useState, useEffect } from "react";
 import { Send, ArrowRight, Loader2, AlertCircle, CheckCircle2, IndianRupee } from "lucide-react";
 import { Link } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
+import { useQuery } from "@tanstack/react-query"; 
+import { useForm } from "react-hook-form"; 
+import { zodResolver } from "@hookform/resolvers/zod"; 
+import * as z from "zod"; 
 import axiosClient from "../api/axiosClient";
 
-interface AccountData {
-  accountNumber: string;
-  balance: number;
-  accountType: string;
-}
+// 1. THE ZOD SCHEMA: This is our bulletproof blueprint
+// Change your Zod schema to look like this:
+const transferSchema = z.object({
+  fromAccountNumber: z.string().min(1, "Please select an account"),
+  toAccountNumber: z.string()
+    .min(10, "Account number must be at least 10 digits")
+    .max(16, "Account number cannot exceed 16 digits")
+    .regex(/^\d+$/, "Account number must contain only numbers"),
+    
+  amount: z.number({ message: "Please enter a valid amount" })
+    .positive("Amount must be greater than zero")
+    .max(1000000, "Transfers exceed the 10,00,000 maximum limit via web."),
+});
 
-export default function TransferMoney() {
-  const [myAccounts, setMyAccounts] = useState<AccountData[]>([]);
-  const [formData, setFormData] = useState({
-    fromAccountNumber: "",
-    toAccountNumber: "",
-    amount: ""
-  });
-  
-  const [isSubmitting, setIsSubmitting] = useState(false);
+// Automatically generate TypeScript types from the Zod Schema!
+type TransferFormValues = z.infer<typeof transferSchema>;
+
+export default function TransferFunds() {
   const [feedback, setFeedback] = useState({ message: "", isError: false });
 
-  // 1. Fetch available accounts on load
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      try {
-        const response = await axiosClient.get("/api/accounts/me");
-        // Only allow transfers from Active accounts
-        const activeAccounts = response.data.filter((a: any) => a.status === "Active");
-        setMyAccounts(activeAccounts);
-        
-        // Auto-select the first account if available
-        if (activeAccounts.length > 0) {
-          setFormData(prev => ({ ...prev, fromAccountNumber: activeAccounts[0].accountNumber }));
-        }
-      } catch (err) {
-        setFeedback({ message: "Could not load your accounts. Check connection.", isError: true });
-      }
-    };
-    fetchAccounts();
-  }, []);
+  // 2. FETCH ACCOUNTS WITH REACT QUERY
+  const { data: myAccounts = [], isLoading: isLoadingAccounts } = useQuery({
+    queryKey: ['activeAccounts'],
+    queryFn: async () => {
+      const response = await axiosClient.get("/api/accounts/me");
+      return response.data.filter((a: any) => a.status === "Active");
+    }
+  });
 
-  // 2. Handle the Transfer Submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+  // 3. INITIALIZE REACT HOOK FORM
+  const { 
+    register, 
+    handleSubmit, 
+    setValue, 
+    reset,
+    formState: { errors, isSubmitting } 
+  } = useForm<TransferFormValues>({
+    resolver: zodResolver(transferSchema), // Connect Zod to the form
+  });
+
+  // Auto-select the first account when the data loads
+  useEffect(() => {
+    if (myAccounts.length > 0) {
+      setValue("fromAccountNumber", myAccounts[0].accountNumber);
+    }
+  }, [myAccounts, setValue]);
+
+  // 4. THE SUBMISSION HANDLER
+  // Notice how clean this is! If Zod fails, this function NEVER even runs.
+  const onSubmit = async (data: TransferFormValues) => {
     setFeedback({ message: "", isError: false });
 
-    // Validate amount locally before sending
-    const transferAmount = Number(formData.amount);
-    if (isNaN(transferAmount) || transferAmount <= 0) {
-      setFeedback({ message: "Please enter a valid amount greater than zero.", isError: true });
-      setIsSubmitting(false);
-      return;
-    }
-
     try {
-      // THE ENTERPRISE PATTERN: Generate a unique Idempotency Key
       const idempotencyKey = uuidv4();
+      const response = await axiosClient.post("/api/transfers", data, {
+        headers: { "X-Idempotency-Key": idempotencyKey }
+      });
 
-      const response = await axiosClient.post(
-        "/api/transfers", 
-        {
-          fromAccountNumber: formData.fromAccountNumber,
-          toAccountNumber: formData.toAccountNumber,
-          amount: transferAmount
-        },
-        {
-          headers: {
-            "X-Idempotency-Key": idempotencyKey
-          }
-        }
-      );
-
-      // Handle both standard 200 OK and 202 Accepted (Maker-Checker Trap)
       setFeedback({ 
         message: response.data.message || response.data.Message || "Transfer completed successfully.", 
         isError: false 
       });
       
-      // Clear form on success, but keep the "from" account selected
-      setFormData(prev => ({ ...prev, toAccountNumber: "", amount: "" }));
+      // Clear the target and amount, but keep the sender selected
+      reset({ toAccountNumber: "", amount: undefined });
+      setValue("fromAccountNumber", data.fromAccountNumber);
 
     } catch (error: any) {
       let errorMsg = "Failed to process transfer. Please try again.";
       if (error.response?.data) {
         if (typeof error.response.data === 'string') errorMsg = error.response.data;
         else if (error.response.data.Message) errorMsg = error.response.data.Message;
-        else if (error.response.data.title) errorMsg = error.response.data.title; // Catch validation titles
       }
       setFeedback({ message: errorMsg, isError: true });
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -99,37 +90,38 @@ export default function TransferMoney() {
     <div className="min-h-screen bg-slate-50 p-8">
       <div className="max-w-2xl mx-auto space-y-6">
         
-        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-            <Send className="text-indigo-600 w-8 h-8" />
-            Send Money
+            <Send className="text-indigo-600 w-8 h-8" /> Send Money
           </h1>
           <Link to="/dashboard" className="text-slate-500 hover:text-indigo-600 font-medium transition-colors">
             Cancel & Return
           </Link>
         </div>
 
-        {/* Form Container */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {/* 🔥 Pass handleSubmit to the form */}
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
             
             {/* Sender Dropdown */}
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">From Account</label>
-              <select 
-                required
-                value={formData.fromAccountNumber}
-                onChange={(e) => setFormData({...formData, fromAccountNumber: e.target.value})}
-                className="w-full px-4 py-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 bg-slate-50 font-medium appearance-none cursor-pointer"
-              >
-                {myAccounts.length === 0 && <option value="">Loading accounts...</option>}
-                {myAccounts.map(acc => (
-                  <option key={acc.accountNumber} value={acc.accountNumber}>
-                     ...{acc.accountNumber.slice(-6)} 
-                  </option>
-                ))}
-              </select>
+              {isLoadingAccounts ? (
+                <div className="w-full px-4 py-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-500">Loading accounts...</div>
+              ) : (
+                <select 
+                  {...register("fromAccountNumber")} // 🔥 Connect to RHF
+                  className={`w-full px-4 py-4 rounded-xl border focus:ring-2 focus:ring-indigo-500 bg-slate-50 font-medium appearance-none cursor-pointer ${errors.fromAccountNumber ? 'border-rose-500' : 'border-slate-200'}`}
+                >
+                  {myAccounts.map((acc: any) => (
+                    <option key={acc.accountNumber} value={acc.accountNumber}>
+                      ...{acc.accountNumber.slice(-6)} (₹{acc.balance.toLocaleString('en-IN')})
+                    </option>
+                  ))}
+                </select>
+              )}
+              {/* Auto Error Display */}
+              {errors.fromAccountNumber && <p className="text-rose-500 text-sm mt-1">{errors.fromAccountNumber.message}</p>}
             </div>
 
             <div className="flex justify-center py-2">
@@ -143,15 +135,13 @@ export default function TransferMoney() {
               <label className="block text-sm font-bold text-slate-700 mb-2">Recipient Account Number</label>
               <input 
                 type="text" 
-                required
                 placeholder="e.g. 100188811365"
-                value={formData.toAccountNumber}
-                onChange={(e) => setFormData({...formData, toAccountNumber: e.target.value.replace(/\D/g, '')})} // Numbers only
-                className="w-full px-4 py-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-mono tracking-widest text-lg"
+                {...register("toAccountNumber")} // 🔥 Connect to RHF
+                className={`w-full px-4 py-4 rounded-xl border focus:ring-2 focus:ring-indigo-500 font-mono tracking-widest text-lg ${errors.toAccountNumber ? 'border-rose-500' : 'border-slate-200'}`}
               />
+              {errors.toAccountNumber && <p className="text-rose-500 text-sm mt-1">{errors.toAccountNumber.message}</p>}
             </div>
 
-            {/* Amount Input */}
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Amount (₹)</label>
               <div className="relative">
@@ -159,17 +149,15 @@ export default function TransferMoney() {
                   <IndianRupee className="h-5 w-5 text-slate-400" />
                 </div>
                 <input 
-                
                   type="number" 
-                  required
-                  min="1"
                   step="0.01"
                   placeholder="0.00"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({...formData, amount: e.target.value})}
-                  className="w-full pl-12 pr-4 py-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 font-bold text-xl text-slate-900"
+                  // 🔥 FIX 2: Tell RHF to instantly cast this HTML string to a Math Number
+                  {...register("amount", { valueAsNumber: true })} 
+                  className={`w-full pl-12 pr-4 py-4 rounded-xl border focus:ring-2 focus:ring-indigo-500 font-bold text-xl text-slate-900 ${errors.amount ? 'border-rose-500' : 'border-slate-200'}`}
                 />
               </div>
+              {errors.amount && <p className="text-rose-500 text-sm mt-1">{errors.amount.message}</p>}
             </div>
 
             {/* Feedback Alert */}
@@ -180,7 +168,6 @@ export default function TransferMoney() {
               </div>
             )}
 
-            {/* Submit Button */}
             <button 
               type="submit" 
               disabled={isSubmitting || myAccounts.length === 0}

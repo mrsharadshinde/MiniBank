@@ -1,9 +1,10 @@
 import axios from 'axios';
 import { refreshAccessToken } from './authApi';
+import { ENV } from '../env';
 
 // 1. Create a custom instance of Axios
 const axiosClient = axios.create({
-  baseURL: 'http://localhost:5131', 
+  baseURL: ENV.VITE_API_URL,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
