@@ -98,7 +98,7 @@ export default function Login() {
         <p className="text-slate-500 text-center mb-8">
           {step === 1 
             ? 'Enter your login ID to receive a secure code.' 
-            : `We sent a code to ${savedLoginId}.`}
+            : `We sent a code to Registred Mobile/Email.`}
         </p>
         
         {/* CONDITIONAL RENDERING: Show Form 1 OR Form 2 */}
@@ -127,14 +127,23 @@ export default function Login() {
 
         ) : (
 
-          <form onSubmit={handleSubmitVer(handleVerifyOtp)} className="space-y-4">
-             <div>
+          <form onSubmit={handleSubmitVer(handleVerifyOtp)} className="space-y-4" autoComplete="off">
+            
+            {/* 🔥 THE HONEYPOT: Catches aggressive browser autofill so it doesn't hit the OTP box */}
+            <div style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden', opacity: 0 }}>
+              <input type="text" name="fake_username_trap" tabIndex={-1} autoComplete="username" />
+              <input type="password" name="fake_password_trap" tabIndex={-1} autoComplete="current-password" />
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">6-Digit Code</label>
               <input 
                 type="text" 
                 maxLength={6}
                 placeholder="000000"
-                {...registerVer("otp")} // 🔥 Connect to Hook 2
+                {...registerVer("otp")} 
+                autoComplete="new-password" // 🔥 The strongest flag to prevent standard autofill
+                inputMode="numeric"
                 className={`w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-brand-500 text-center text-2xl tracking-widest font-mono ${errorsVer.otp ? 'border-rose-500' : 'border-slate-200'}`}
               />
               {errorsVer.otp && <p className="text-rose-500 text-sm mt-1">{errorsVer.otp.message}</p>}

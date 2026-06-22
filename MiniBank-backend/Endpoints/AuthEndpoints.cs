@@ -1,3 +1,5 @@
+// AuthEndpoints.cs 
+
 using System.Security.Claims;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
@@ -15,8 +17,9 @@ namespace MiniBankWallet.Endpoints;
 // ==========================================
 public record OtpRequest(string LoginId);
 public record VerifyOtpRequest(string LoginId, string Otp);
-public record StaffLoginRequest(string Email, string Password);
-public record ChangePasswordRequest(string Email, string OldTempPassword, string NewPassword);
+// 🔥 UPDATED: Changed Email to LoginId to support multi-field login
+public record StaffLoginRequest(string LoginId, string Password);
+public record ChangePasswordRequest(string LoginId, string OldTempPassword, string NewPassword);
 public record TokenRefreshRequest(string AccessToken, string RefreshToken);
 
 // ==========================================
@@ -56,6 +59,9 @@ public static class AuthEndpoints
 
             if (requestingUser == null)
                 return Results.BadRequest("Account not found");
+            
+            if (requestingUser.Role != UserRole.Customer)
+                return Results.BadRequest("Access Denied: Staff members must use the dedicated Staff Portal.");
 
             var otp = new Random().Next(100000, 999999).ToString();
             cache.Set(loginId, otp, TimeSpan.FromMinutes(3));
@@ -89,7 +95,6 @@ public static class AuthEndpoints
         // ----------------------------------------------------------------------------------
         // 2. VERIFY OTP (Customer Flow)
         // ----------------------------------------------------------------------------------
-        // 🔥 FIX 1: Inject HttpContext and IAntiforgery
         group.MapPost("/verify-otp", async (
             VerifyOtpRequest request,
             AppDbContext db,
@@ -119,12 +124,13 @@ public static class AuthEndpoints
 
             if (loggingInUser == null)
                 return Results.BadRequest("Invalid Login ID. User not found.");
+            
+            if (loggingInUser.Role != UserRole.Customer)
+                return Results.BadRequest("Access Denied: Staff members must use the dedicated Staff Portal.");
 
-            // Generate JWT and Refresh Tokens
             var tokenString = SecurityContext.GenerateJwtToken(loggingInUser, config);
             var refreshToken = SecurityHelper.GenerateRefreshToken();
 
-            // 🔥 FIX 2: Create the HttpOnly Cookie (XSS Protection)
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
@@ -134,21 +140,18 @@ public static class AuthEndpoints
             };
             httpContext.Response.Cookies.Append("AccessToken", tokenString, cookieOptions);
 
-            // 🔥 FIX 3: Generate and set the Anti-CSRF Token
             var tokens = antiforgery.GetAndStoreTokens(httpContext);
             httpContext.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
             {
-                HttpOnly = false, // React MUST be able to read this
+                HttpOnly = false, 
                 Secure = httpContext.Request.IsHttps,
                 SameSite = SameSiteMode.Strict
             });
 
-            // Save Refresh token to DB
             loggingInUser.RefreshToken = refreshToken;
             loggingInUser.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
             await db.SaveChangesAsync();
 
-            // 🔥 FIX 4: Return Success using loggingInUser properties (No tokens in the body!)
             return Results.Ok(new
             {
                 Message = "Login Successful",
@@ -160,14 +163,17 @@ public static class AuthEndpoints
         // ----------------------------------------------------------------------------------
         // 3. STAFF LOGIN (Password Flow)
         // ----------------------------------------------------------------------------------
-        // 🔥 FIX 5: Added HttpContext and IAntiforgery here too so Staff are protected
         group.MapPost("/staff-login", async (
             StaffLoginRequest request, 
             AppDbContext db,
             HttpContext httpContext, 
             Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery) =>
         {
-            var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+            string searchId = request.LoginId.Trim();
+
+            // 🔥 UPDATED: Now searches by Email, Mobile, OR Aadhar
+            var user = await db.Users.FirstOrDefaultAsync(u => 
+                u.Email == searchId || u.MobileNumber == searchId || u.AadharNumber == searchId);
 
             if (user == null || user.Role == UserRole.Customer)
                 return Results.Unauthorized();
@@ -185,11 +191,9 @@ public static class AuthEndpoints
                 });
             }
 
-            // Generate JWT and Refresh Tokens
             var tokenString = SecurityContext.GenerateJwtToken(user, config);
             var refreshToken = SecurityHelper.GenerateRefreshToken();
 
-            // 🔥 Create the HttpOnly Cookie (XSS Protection)
             var cookieOptions = new CookieOptions
             {
                 HttpOnly = true,
@@ -199,21 +203,18 @@ public static class AuthEndpoints
             };
             httpContext.Response.Cookies.Append("AccessToken", tokenString, cookieOptions);
 
-            // 🔥 Generate and set the Anti-CSRF Token
             var tokens = antiforgery.GetAndStoreTokens(httpContext);
             httpContext.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
             {
-                HttpOnly = false, // React MUST be able to read this
+                HttpOnly = false, 
                 Secure = httpContext.Request.IsHttps,
                 SameSite = SameSiteMode.Strict
             });
 
-            // Save Refresh token to DB
             user.RefreshToken = refreshToken;
             user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
             await db.SaveChangesAsync();
 
-            // Return Success WITHOUT the token in the body
             return Results.Ok(new
             {
                 Message = "Login Successful",
@@ -227,7 +228,11 @@ public static class AuthEndpoints
         // ----------------------------------------------------------------------------------
         group.MapPost("/change-password", async (ChangePasswordRequest request, AppDbContext db) =>
         {
-            var user = await db.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+            string searchId = request.LoginId.Trim();
+
+            // 🔥 UPDATED: Now searches by Email, Mobile, OR Aadhar
+            var user = await db.Users.FirstOrDefaultAsync(u => 
+                u.Email == searchId || u.MobileNumber == searchId || u.AadharNumber == searchId);
 
             if (user == null || user.Role == UserRole.Customer)
                 return Results.BadRequest("Invalid user account.");
@@ -247,7 +252,7 @@ public static class AuthEndpoints
         // ----------------------------------------------------------------------------------
         // 5. REFRESH TOKEN
         // ----------------------------------------------------------------------------------
-        group.MapPost("/refresh", async (TokenRefreshRequest request, AppDbContext db, IConfiguration config) =>
+        group.MapPost("/refresh", async (TokenRefreshRequest request, AppDbContext db, IConfiguration config, HttpContext httpContext) =>
         {
             var principal = SecurityContext.GetPrincipalFromExpiredToken(request.AccessToken, config);
             if (principal == null)
@@ -266,6 +271,15 @@ public static class AuthEndpoints
             var newAccessToken = SecurityContext.GenerateJwtToken(user, config);
             var newRefreshToken = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(64));
             
+            // Re-issue the HttpOnly cookie for the renewed token
+            httpContext.Response.Cookies.Append("AccessToken", newAccessToken, new CookieOptions 
+            { 
+                HttpOnly = true, 
+                Secure = httpContext.Request.IsHttps, 
+                SameSite = SameSiteMode.Strict, 
+                Expires = DateTime.UtcNow.AddMinutes(15) 
+            });
+
             user.RefreshToken = newRefreshToken;
             user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
             await db.SaveChangesAsync();
@@ -275,6 +289,71 @@ public static class AuthEndpoints
                 AccessToken = newAccessToken,
                 RefreshToken = newRefreshToken
             });
+        });
+
+        // ----------------------------------------------------------------------------------
+        // 6. STAFF REQUEST OTP (Strictly for Admins/Tellers)
+        // ----------------------------------------------------------------------------------
+        group.MapPost("/staff-request-otp", async (OtpRequest request, AppDbContext db, IMemoryCache cache, IBackgroundJobClient backgroundJobs) =>
+        {
+            string loginId = request.LoginId.Trim();
+            
+            // 🔥 UPDATED: Included AadharNumber in the search lookup
+            var requestingUser = await db.Users.FirstOrDefaultAsync(u => 
+                u.Email == loginId || u.MobileNumber == loginId || u.AadharNumber == loginId);
+
+            if (requestingUser == null)
+                return Results.BadRequest("Staff Account not found");
+
+            if (requestingUser.Role == UserRole.Customer)
+                return Results.BadRequest("Access Denied: Customers cannot use the Staff Portal.");
+
+            var otp = new Random().Next(100000, 999999).ToString();
+            cache.Set("STAFF_" + loginId, otp, TimeSpan.FromMinutes(3));
+
+            string message = $"Your MiniBank STAFF verification code is: {otp}. Do not share this.";
+            Console.WriteLine(message); 
+
+            if (loginId.Contains('@'))
+                backgroundJobs.Enqueue<INotificationService>(n => n.SendEmailAsync(requestingUser.Email, "MiniBank Staff OTP", message));
+            else
+                backgroundJobs.Enqueue<INotificationService>(n => n.SendSmsAsync(requestingUser.MobileNumber, message));
+
+            return Results.Ok(new { Message = "Staff OTP sent Successfully." });
+        }).RequireRateLimiting("OtpRateLimit");
+
+        // ----------------------------------------------------------------------------------
+        // 7. STAFF VERIFY OTP (Strictly for Admins/Tellers)
+        // ----------------------------------------------------------------------------------
+        group.MapPost("/staff-verify-otp", async (VerifyOtpRequest request, AppDbContext db, IMemoryCache cache, HttpContext httpContext, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery, IConfiguration config) =>
+        {
+            if (!cache.TryGetValue("STAFF_" + request.LoginId, out string? savedOtp) || savedOtp != request.Otp.Trim())
+                return Results.Unauthorized();
+
+            cache.Remove("STAFF_" + request.LoginId);
+
+            string loginId = request.LoginId.Trim();
+            
+            // 🔥 UPDATED: Included AadharNumber in the search lookup
+            var loggingInUser = await db.Users.FirstOrDefaultAsync(u => 
+                u.Email == loginId || u.MobileNumber == loginId || u.AadharNumber == loginId);
+
+            if (loggingInUser == null || loggingInUser.Role == UserRole.Customer)
+                return Results.BadRequest("Access Denied: Invalid Staff credentials.");
+
+            var tokenString = SecurityContext.GenerateJwtToken(loggingInUser, config);
+            var refreshToken = SecurityHelper.GenerateRefreshToken();
+
+            httpContext.Response.Cookies.Append("AccessToken", tokenString, new CookieOptions { HttpOnly = true, Secure = httpContext.Request.IsHttps, SameSite = SameSiteMode.Strict, Expires = DateTime.UtcNow.AddMinutes(15) });
+            
+            var tokens = antiforgery.GetAndStoreTokens(httpContext);
+            httpContext.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions { HttpOnly = false, Secure = httpContext.Request.IsHttps, SameSite = SameSiteMode.Strict });
+
+            loggingInUser.RefreshToken = refreshToken;
+            loggingInUser.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new { Message = "Staff Login Successful", Role = loggingInUser.Role.ToString(), Name = loggingInUser.OwnerName });
         });
     }
 }

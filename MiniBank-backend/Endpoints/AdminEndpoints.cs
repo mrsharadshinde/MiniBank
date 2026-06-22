@@ -11,12 +11,10 @@ using MiniBankWallet.Models.Governance;
 
 namespace MiniBankWallet.Endpoints;
 
-
 public static class AdminEndpoints
 {
     public static void MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
-        // 1. Group all admin routes together and protect them
         var adminGroup = app.MapGroup("/api/admin").RequireAuthorization("AdminOnly").WithTags("Admin Activity");
 
         // ==========================================
@@ -31,29 +29,23 @@ public static class AdminEndpoints
             if (string.IsNullOrWhiteSpace(request.MobileNumber) || string.IsNullOrWhiteSpace(request.Email))
                 return Results.BadRequest("Mobile number and email are required.");
 
-            // Check if this contact info already belongs to an existing staff member
-            bool staffExists = await db.Users.AnyAsync(u =>
-                (u.MobileNumber == request.MobileNumber || u.Email == request.Email) &&
-                (u.Role == UserRole.Admin || u.Role == UserRole.Teller));
+            // 🔥 UPDATED: Strict global check to prevent sending OTPs if the email or mobile is already in the database
+            bool userExists = await db.Users.AnyAsync(u =>
+                u.MobileNumber == request.MobileNumber || u.Email == request.Email);
 
-            if (staffExists)
-                return Results.Conflict("A staff member with this mobile number or email already exists.");
+            if (userExists)
+                return Results.Conflict("A user with this mobile number or email is already registered in the system.");
 
-            // Generate secure 6-digit OTPs
             string mobileOtp = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
             string emailOtp = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
 
-            // Set expiration (10 minutes)
-            var cacheOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(TimeSpan.FromMinutes(10));
+            var cacheOptions = new MemoryCacheEntryOptions().SetAbsoluteExpiration(TimeSpan.FromMinutes(10));
 
-            // Save to cache
             string mobileKey = $"STAFF_OTP_MOBILE_{request.MobileNumber}";
             string emailKey = $"STAFF_OTP_EMAIL_{request.Email}";
             cache.Set(mobileKey, mobileOtp, cacheOptions);
             cache.Set(emailKey, emailOtp, cacheOptions);
 
-            // Send OTPs via notification service
             string mobileWithCountryCode = request.MobileNumber.StartsWith("+")
                 ? request.MobileNumber
                 : $"+91{request.MobileNumber}";
@@ -83,26 +75,21 @@ public static class AdminEndpoints
             if (string.IsNullOrWhiteSpace(request.MobileNumber) || string.IsNullOrWhiteSpace(request.Email))
                 return Results.BadRequest("Mobile number and email are required.");
 
-            // Retrieve saved OTPs from cache
             string mobileKey = $"STAFF_OTP_MOBILE_{request.MobileNumber}";
             string emailKey = $"STAFF_OTP_EMAIL_{request.Email}";
 
             cache.TryGetValue(mobileKey, out string? savedMobileOtp);
             cache.TryGetValue(emailKey, out string? savedEmailOtp);
 
-            // Validate OTPs exist
             if (savedMobileOtp == null || savedEmailOtp == null)
                 return Results.BadRequest("OTPs have expired or were never requested.");
 
-            // Validate OTP values
             if (savedMobileOtp != request.MobileOtp || savedEmailOtp != request.EmailOtp)
                 return Results.BadRequest("Invalid verification codes.");
 
-            // Clean up OTPs (one-time use)
             cache.Remove(mobileKey);
             cache.Remove(emailKey);
 
-            // Generate staff provisioning token (valid for 30 minutes)
             string staffProvisioningToken = Guid.NewGuid().ToString();
             string tokenKey = $"STAFF_PROVISIONING_TOKEN_{request.Email}_{request.MobileNumber}";
             cache.Set(tokenKey, staffProvisioningToken, TimeSpan.FromMinutes(30));
@@ -114,7 +101,6 @@ public static class AdminEndpoints
             });
         });
 
-        // 2. The Provision Staff Endpoint
         adminGroup.MapPost("/provision-staff", async (
             ProvisionStaffRequest request,
             AppDbContext db,
@@ -124,28 +110,24 @@ public static class AdminEndpoints
         {
             var adminId = int.Parse(adminUser.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            // Verify the staff provisioning token
             string tokenKey = $"STAFF_PROVISIONING_TOKEN_{request.Email}_{request.MobileNumber}";
             cache.TryGetValue(tokenKey, out string? savedToken);
 
             if (string.IsNullOrWhiteSpace(savedToken) || savedToken != request.StaffProvisioningToken)
                 return Results.Json(
-         data: new { Message = "Invalid or expired provisioning token. Please complete OTP verification first." },
-         statusCode: StatusCodes.Status401Unauthorized
-     );
-            // Check if email already exists
+                    data: new { Message = "Invalid or expired provisioning token. Please complete OTP verification first." },
+                    statusCode: StatusCodes.Status401Unauthorized
+                );
+
             if (await db.Users.AnyAsync(u => u.Email == request.Email))
                 return Results.BadRequest("User with this email already exists.");
 
-            // Check if mobile number already exists
             if (await db.Users.AnyAsync(u => u.MobileNumber == request.MobileNumber))
                 return Results.BadRequest("User with this mobile number already exists.");
 
-            // Check if Aadhar number already exists
             if (await db.Users.AnyAsync(u => u.AadharNumber == request.AadharNumber))
                 return Results.BadRequest("User with this Aadhar number already exists.");
 
-            // Generate secure temp password
             string tempPassword = SecurityHelper.GenerateRandomPassword(12);
             string hashedPassword = BCrypt.Net.BCrypt.HashPassword(tempPassword);
 
@@ -165,10 +147,8 @@ public static class AdminEndpoints
             db.Users.Add(newTeller);
             await db.SaveChangesAsync();
 
-            // Clean up the token after use
             cache.Remove(tokenKey);
 
-            // Send Credentials via Email
             string emailBody = $@"
                 <h3>Welcome to MiniBank, {newTeller.OwnerName}!</h3>
                 <p>Your Teller account has been successfully provisioned by the Admin team.</p>
@@ -182,9 +162,6 @@ public static class AdminEndpoints
             return Results.Ok(new { Message = "Teller provisioned successfully.", Email = newTeller.Email });
         });
 
-        // ==========================================
-        // 🔥 NEW: GET PENDING ACCOUNTS
-        // ==========================================
         adminGroup.MapGet("/accounts/pending", async (AppDbContext db) =>
         {
             var pendingAccounts = await db.BankAccounts
@@ -202,9 +179,6 @@ public static class AdminEndpoints
             return Results.Ok(pendingAccounts);
         });
 
-        // ==========================================
-        // 🔥 NEW: ACTIVATE / SUSPEND / REJECT ACCOUNT
-        // ==========================================
         adminGroup.MapPut("/accounts/{accountNumber}/status", async (
             string accountNumber,
             UpdateAccountStatusRequest request,
@@ -222,15 +196,12 @@ public static class AdminEndpoints
             if (account.Status == request.NewStatus)
                 return Results.BadRequest($"Account is already {account.Status}.");
 
-            // 🔥 1. Track the old status for the Audit Log
             string oldStatus = account.Status;
 
-            // 🔥 2. Apply the updates
             account.Status = request.NewStatus;
-            account.UpdatedAt = DateTime.UtcNow; // Keep timestamps accurate
-            account.Version = Guid.NewGuid();    // Bump concurrency token
+            account.UpdatedAt = DateTime.UtcNow; 
+            account.Version = Guid.NewGuid();    
 
-            // 🔥 3. Save to Audit Log
             var adminIdStr = loggedInUser.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             int.TryParse(adminIdStr, out int adminId);
 
