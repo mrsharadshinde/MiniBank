@@ -103,7 +103,16 @@ export default function ManageAccountsTab() {
           </div>
 
           <h4 className="font-bold text-slate-700 mt-4 mb-2 text-sm uppercase tracking-wider">Select Account to Manage</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          
+          {managedAccount.accounts.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-200 p-6 rounded-xl text-center mb-6">
+              <p className="text-amber-800 font-bold">No Financial Accounts Found</p>
+              <p className="text-amber-600 text-sm mt-1">
+                This profile does not have any active Bank Accounts attached to it. If this is a Staff member, their access cannot be suspended from this financial tab.
+              </p>
+            </div>
+          ): (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
             {managedAccount.accounts.map(acc => (
               <div key={acc.accountNumber} className={`p-4 border rounded-xl flex justify-between items-center transition-all ${selectedAccForManage === acc.accountNumber ? 'border-indigo-500 bg-indigo-50 shadow-sm' : 'border-slate-200 bg-white'}`}>
                 <div>
@@ -124,6 +133,7 @@ export default function ManageAccountsTab() {
               </div>
             ))}
           </div>
+          )}
 
           {selectedAccForManage && (
             <form onSubmit={(e) => { e.preventDefault(); manageAccountStatusMutation.mutate(); }} className="space-y-4 bg-white p-6 border border-slate-200 rounded-2xl shadow-sm">

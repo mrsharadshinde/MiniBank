@@ -187,7 +187,7 @@ public static class AuthEndpoints
                 return Results.BadRequest(new
                 {
                     Code = "FORCE_PASSWORD_RESET",
-                    Message = "You must change your temporary password before accessing the system. Please call /api/auth/change-password."
+                    Message = "You must change your temporary password before accessing the system."
                 });
             }
 
@@ -246,7 +246,7 @@ public static class AuthEndpoints
 
             await db.SaveChangesAsync();
 
-            return Results.Ok(new { Message = "Password successfully changed. You may now log in via /api/auth/staff-login." });
+            return Results.Ok(new { Message = "Password successfully changed." });
         });
 
         // ----------------------------------------------------------------------------------
@@ -308,6 +308,9 @@ public static class AuthEndpoints
             if (requestingUser.Role == UserRole.Customer)
                 return Results.BadRequest("Access Denied: Customers cannot use the Staff Portal.");
 
+            if (requestingUser.RequiresPasswordReset)
+            return Results.BadRequest("Security Policy: You must log in with your temporary password and set a new one before using OTP access.");
+
             var otp = new Random().Next(100000, 999999).ToString();
             cache.Set("STAFF_" + loginId, otp, TimeSpan.FromMinutes(3));
 
@@ -340,6 +343,9 @@ public static class AuthEndpoints
 
             if (loggingInUser == null || loggingInUser.Role == UserRole.Customer)
                 return Results.BadRequest("Access Denied: Invalid Staff credentials.");
+
+            if (loggingInUser.RequiresPasswordReset)
+            return Results.BadRequest("Security Policy: You must log in with your temporary password and set a new one before accessing the system.");
 
             var tokenString = SecurityContext.GenerateJwtToken(loggingInUser, config);
             var refreshToken = SecurityHelper.GenerateRefreshToken();

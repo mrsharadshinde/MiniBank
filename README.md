@@ -3,7 +3,7 @@
 ![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
 ![.NET Core](https://img.shields.io/badge/.NET_8.0-512BD4?style=for-the-badge&logo=dotnet&logoColor=white)
-![MySQL](https://img.shields.io/badge/MySQL-005C84?style=for-the-badge&logo=mysql&logoColor=white)
+![SQL Server](https://img.shields.io/badge/SQL_Server-CC2927?style=for-the-badge&logo=microsoft-sql-server&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 
 MiniBank is a full-stack, role-based core banking platform designed to simulate enterprise financial workflows. Built with a **C# .NET Minimal API** backend and a **React TypeScript** frontend, this platform enforces strict financial compliance, secure over-the-counter (OTC) processing, and idempotency guarantees.
@@ -31,6 +31,18 @@ The application serves three distinct JWT-authenticated experiences:
 * **Teller CRM:** Securely search customers via 12-digit Account IDs, process OTC cash deposits/withdrawals linked to a Central Vault, and update KYC contact details.
 * **Admin Control Center:** Provision new staff, approve/reject pending transfers, activate newly onboarded accounts, and review the read-only Compliance Audit Log.
 
+### 🔐 5. Zero-Trust Security & Air-Gapped Portals
+Replaced vulnerable LocalStorage JWTs with **Secure, HttpOnly, Strict SameSite Cookies** and custom **Anti-CSRF** validation middleware. The backend strictly air-gaps Customer and Staff API boundaries to completely eliminate cross-contamination and authentication bypass vulnerabilities.
+
+### ⚙️ 6. Asynchronous Processing & Cron Jobs
+Integrated **Hangfire** to offload slow network calls (like SMS and Email OTP dispatching) from the main HTTP thread to background queues, ensuring the API responds in milliseconds. Also includes automated daily background workers to calculate and distribute APY interest.
+
+### 🧱 7. Feature-Sliced Frontend Architecture
+The React application is modularized using a **Domain-Driven Design**, dismantling massive monolithic UI components. Server state is managed by **TanStack Query** (caching/optimistic updates), while forms utilize **React Hook Form + Zod** for zero-latency, mathematically strict schema validation.
+
+### 📝 8. Global Audit Logging & Compliance
+A custom C# Middleware automatically intercepts and logs all critical state changes (e.g., account suspensions, bulk payroll executions) to an immutable `AuditLog` table. It tracks the exact `AdminId`, action, previous state, and timestamp for SOC2/PCI-style compliance.
+
 ---
 
 ## 🛠️ Technology Stack
@@ -47,38 +59,66 @@ The application serves three distinct JWT-authenticated experiences:
 * **ORM & Database:** Entity Framework Core (EF Core)
 * **Security:** JWT Bearer Authentication, BCrypt Password Hashing
 * **Validation:** FluentValidation
+** BackGroundworker** Hangfire
+
+---
+## previews 
+   Admin Dashboard: 
+   ![alt text](docs/image.png)
+
+   Cutomer Dashboard: 
+   ![alt text](docs/image-1.png)
+
+   Teller / CTO dashbaord : 
+   ![alt text](docs/image-2.png)
+
+  # * ** Working with XLSX files : **
+   ![alt text](docs/image-3.png)
+---
+---
+
+## 🚀 Quick Start Guide (Local Development)
+
+### 1. Backend Setup (.NET 8)
+1. Open the `MiniBank-backend` folder in Visual Studio or your preferred IDE.
+2. Ensure you have the **.NET 8 SDK** installed.
+3. Build  (`dotnet build`), and Run the application (Press `F5` or use `dotnet run`).
+   * **Automated Setup:** The application will automatically create the local SQL Database and apply all EF Core migrations on startup. No manual `Update-Database` required!
+
+> ⚠️ **Notice for macOS / Linux Evaluators:**
+> Microsoft `LocalDB` is native to Windows. If you are evaluating this project on macOS or Linux, please update the `DefaultConnection` string in `MiniBank-backend/appsettings.json` to point to your local SQL Server Docker container (e.g., `Server=localhost,1433;Database=MiniBank...`). The startup script will still handle the automatic database generation for you!
+
+### 2. Frontend Setup (React + Vite)
+1. Open the `minibank-frontend` folder in a new terminal.
+2. Run `npm install` to download dependencies.
+3. make sure we have .env file or Rename the `.env.example` file to `.env`. 
+4. Ensure `VITE_API_URL` inside `.env` matches the port your C# backend is running on.
+5. Run `npm run dev`.
 
 ---
 
-## 📸 Platform Previews
+## 🔑 How to Test Authentication & OTPs
 
-> *(Developer Note: Take screenshots of your running app and save them in a folder called `docs/images/`. Update the links below to make your README visually pop!)*
+This application features an air-gapped authentication matrix between Customers and Staff. 
 
-<details>
-<summary><b>1. Customer Dashboard & Idempotent Transfers</b></summary>
-<img src="./docs/images/customer-dashboard.png" alt="Customer Dashboard" width="800"/>
-</details>
+**Development vs. Production OTPs:**
+To prevent SMS/Email charges during development and evaluation, the backend Notification Service intercepts the OTPs. 
+* When you request an OTP on the frontend, **look at the C# Backend Console/Terminal window.** * The 6-digit OTP will be printed directly in the console like this: `[SMS] Your MiniBank verification code is: 123456`.
+* *(In a Production environment, Hangfire background workers dispatch this exact message to AWS SNS / SMTP servers).*
 
-<details>
-<summary><b>2. Teller CRM & OTC Operations</b></summary>
-<img src="./docs/images/teller-crm.png" alt="Teller CRM" width="800"/>
-</details>
+### Test Credentials (Seeded Data)
+To get started, you can use the following seeded accounts. **Because temporary passwords require a reset, please use the 'OTP Code' login method for Staff.**
 
-<details>
-<summary><b>3. Admin Control Center & Audit Log</b></summary>
-<img src="./docs/images/admin-dashboard.png" alt="Admin Dashboard" width="800"/>
-</details>
+**👨‍💼 Admin Control Center (Staff Login Portal):**
+* **Login ID:** `admin@minibank.com`
+* **Method:** Select the **"OTP Code"** toggle on the login screen. Check the C# console for the 6-digit code.
 
----
+**👔 CTO / Teller (Staff Login Portal):**
+* **Login ID:** `shindesharad9325@gmail.com`
+* **Method:** Select the **"OTP Code"** toggle. Check the C# console.
 
-## 🚀 Getting Started (Local Development)
+**👤 Customer Portal:**
+* **Login ID (Account Number):** `522093205024`
+* **Method:** Enter ID, click send OTP, and retrieve the code from the C# console.
 
-### Prerequisites
-* Node.js (v18+)
-* .NET 8 SDK
-* SQL Database (Local or Cloud)
-
-### 1. Backend Setup
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
+From the Admin Dashboard, navigate to "Provision Staff" to create a brand new staff member and explore the Maker-Checker workflow!

@@ -127,7 +127,7 @@ public partial class Program
                 {
                     OnMessageReceived = context =>
                     {
-                        var accessToken =  context.Request.Cookies["AccessToken"];
+                        var accessToken = context.Request.Cookies["AccessToken"];
 
                         // if the cookie exists, Hand it ot the JWT Validator 
                         if (!string.IsNullOrWhiteSpace(accessToken))
@@ -240,7 +240,6 @@ public partial class Program
         app.UseMiddleware<MiniBankWallet.Middlewares.AuditLoggingMiddleware>();
         // ==========================================
         // 5. ROUTING & ENDPOINTS
-        // "The Map" - Where should requests go?
         // ==========================================
 
         // A quick test endpoint to make sure the app runs
@@ -255,6 +254,22 @@ public partial class Program
         app.MapAuditEndpoints();
         app.MapTellerEndpoints();
         app.MapKycEndpoints();
+
+        
+        // This automatically applies EF Core migrations and creates the DB for the evaluators
+        using (var scope = app.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            try
+            {
+                dbContext.Database.Migrate();
+                Console.WriteLine("✅ Database successfully created/migrated.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error migrating database: {ex.Message}");
+            }
+        }
 
         // ==========================================
         // 6. START THE SERVER

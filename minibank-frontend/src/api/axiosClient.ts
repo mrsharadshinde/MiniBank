@@ -37,6 +37,17 @@ axiosClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    
+    // Just pass the error directly back to the component so it can show the red error text.
+    if (
+      error.response?.status === 401 && 
+      (originalRequest.url.includes('/staff-login') || 
+       originalRequest.url.includes('/login') || 
+       originalRequest.url.includes('/request-otp') ||
+       originalRequest.url.includes('/verify-otp'))
+    ) {
+      return Promise.reject(error);
+    }
 
     // Check if the server returned an Unauthorized 401 response 
     if (error.response?.status == 401 && !originalRequest._retry) {
